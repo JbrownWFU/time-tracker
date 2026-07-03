@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"maps"
 )
 
 type MapRepo struct {
@@ -10,13 +9,14 @@ type MapRepo struct {
 }
 
 func NewMapRepo() *MapRepo {
-	jobs := make(map[int]string)
+	jobs := make(map[int]Job)
 
 	return &MapRepo{
-		jobs: jobs
+		jobs: jobs,
 	}
 }
 
-func (r *MapRepo) WriteJob(j job) error {
-
+func (r *MapRepo) WriteJob(j Job) error {
+	fmt.Println("ok")
+	return nil
 } 
