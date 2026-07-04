@@ -20,6 +20,8 @@ type Entry struct {
 	Note      string
 }
 
+// Make job
+
 func main() {
 	job := Job{
 		1,
