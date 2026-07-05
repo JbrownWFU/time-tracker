@@ -9,11 +9,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// sqlTimeFormat matches sqlite's current_timestamp text format so timestamps
-// generated in Go sort and parse the same as the values it used to default to.
-const sqlTimeFormat = "2006-01-02 15:04:05"
-
 const (
+	sqlTimeFormat = "2006-01-02 15:04:05"
+
 	makeTables = `
 	create table if not exists Jobs (
 		id integer primary key,
@@ -61,6 +59,7 @@ const (
 	select * from Spans
 	where id = ?
 	`
+	// Find open time entries
 	getOpenSpanID = `
 	select max(id) from Spans
 	where end_time is null
@@ -93,6 +92,7 @@ func NewSqlConn(path string) (SqlConn, error) {
 	return SqlConn{db: db}, nil
 }
 
+// Close DB Connection
 func (s *SqlConn) Close() error {
 	return s.db.Close()
 }
@@ -169,6 +169,8 @@ func (s *SqlConn) UpdateJobStatus(id int, status string) (int, error) {
 // startTime lets callers backdate a clock-in (e.g. forgot to clock in
 // yesterday); pass time.Now() for the normal case.
 func (s *SqlConn) WriteSpan(jobId int, startTime time.Time) (int, error) {
+	// Check for open spans
+	
 	res, err := s.db.Exec(writeSpan, jobId, startTime.UTC().Format(sqlTimeFormat))
 	if err != nil {
 		return 0, fmt.Errorf("write span failed: %w", err)
@@ -192,4 +194,16 @@ func (s *SqlConn) UpdateSpan(spanId int, endTime time.Time) error {
 	}
 
 	return nil
+}
+
+// open span testing
+// Finds open span on table and returns ID
+func (s *SqlConn) GetOpenSpan() (int, error) {
+	var id int
+	err := s.db.QueryRow(getOpenSpanID).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("could not get open span: %w", err)
+	}
+	
+	return id, nil
 }

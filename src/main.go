@@ -6,33 +6,12 @@ import (
 	"time"
 )
 
-// TODO
-// Put notes in their own table they dont live on Spans
-// Update sql funcs to just work with IDs
-// Function to take in time from user for backdating spans
-
-// Core structs
-type Job struct {
-	ID     int
-	Name   string
-	Desc   string
-	Status string
-}
-
-type Span struct {
-	ID        int
-	JobID     int
-	StartTime string
-	EndTime   *string
-}
-
-type Note struct {
-	ID 		int
-	EntryID int
-	Content string
-}
-
-// Make job
+/*
+TODO
+- Put notes in their own table they dont live on Spans
+- Update sql funcs to just work with IDs
+- Function to take in time from user for backdating spans
+*/
 
 func main() {
 	// Test sql
@@ -47,16 +26,24 @@ func main() {
 	}
 	
 	// Create a new job
-	jobId, err := Conn.WriteJob("birdJob", "a job for birds", "todo")
+	// _, err = Conn.WriteJob("birdJob2", "a job for birds", "todo")
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	
+	// Get existing job id
+	jobId, err := Conn.ResolveJob("birdJob2")
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Update job
+	/*
 	_, err = Conn.UpdateJobStatus(jobId, "active")
 	if err != nil {
 		log.Fatal(err)
 	}
+	*/
 
 	// Test clock in
 	// TODO need way to resolve job name -> id
@@ -65,16 +52,23 @@ func main() {
 		log.Fatal(err)
 	}
 	
-	fmt.Printf("Start ID: %d\n", startId)
+	fmt.Printf("Start Time: %s\n", time.Now())
 	fmt.Println("Working...")
 	
-	// Do work
-	time.Sleep(time.Second * 5)
+	// Check for open span
+	openId, err := Conn.GetOpenSpan()
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	fmt.Printf("Open span id: %d\n", openId)
+	
+	// // Do work
+	time.Sleep(time.Second * 3)
 	
 	if err := Conn.UpdateSpan(startId, time.Now()); err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("end ID: %d\n", startId)
-	
+	fmt.Printf("End Time: %s\n", time.Now())
 }
