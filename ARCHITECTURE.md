@@ -3,7 +3,7 @@
 ## Overview
 
 `time-tracker` is a Go CLI for tracking time spent on jobs. The domain model
-is built around two core structs, `Job` and `Entry`, defined in
+is built around two core structs, `Job` and `Span`, defined in
 [src/main.go](src/main.go). Persistence is backed by SQLite via
 [src/sqldb.go](src/sqldb.go).
 
@@ -38,10 +38,10 @@ create table if not exists Jobs (
 Note: `name` is unique at the storage layer but this is not yet reflected
 as a constraint on the `Job` struct itself.
 
-### `Entry`
+### `Span`
 
 ```go
-type Entry struct {
+type Span struct {
     ID        int
     JobID     int
     StartTime string
@@ -50,20 +50,20 @@ type Entry struct {
 }
 ```
 
-An `Entry` is a single logged time span against a `Job`, linked via
+A `Span` is a single logged time span against a `Job`, linked via
 `JobID` (foreign key relationship, not yet enforced in schema). `StartTime`
 and `EndTime` are currently plain strings rather than a time type.
 
-There is no `Entries` table yet — only `Jobs` is created by `MakeTables`.
+There is no `Spans` table yet — only `Jobs` is created by `MakeTables`.
 
 ## Relationship
 
 ```
-Job (1) ──< (many) Entry
-  Job.ID  <──  Entry.JobID
+Job (1) ──< (many) Span
+  Job.ID  <──  Span.JobID
 ```
 
-A `Job` owns zero or more `Entry` records, each representing a discrete
+A `Job` owns zero or more `Span` records, each representing a discrete
 period of work logged against it.
 
 ## Persistence layer
@@ -81,8 +81,8 @@ period of work logged against it.
 
 This is an early-stage skeleton:
 
-- No `Entries` table or `WriteEntry`/read methods yet.
+- No `Spans` table or `WriteSpan`/read methods yet.
 - `WriteJob` is unimplemented (no body).
-- No read/query methods (list jobs, list entries for a job, etc.).
+- No read/query methods (list jobs, list spans for a job, etc.).
 - `main.go` currently only demonstrates constructing a `Job` and connecting
   to the DB — no real CLI flow yet.

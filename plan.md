@@ -14,15 +14,15 @@ A job is a task / project
 >   - Description: Optional long description
 >   - Status: One of `TODO`, `ACTIVE`, `DONE`
 
-### Entry
-An entry is a time spent on a job
+### Span
+A span is a time spent on a job
 
 #### Properties:
->   - ID: Unique identifer
+>   - ID: Unique identifier
 >   - Job ID: Foreign key to Job table
 >   - StartTime: Start timestamp
 >   - Endtime: End timestamp - null until clocked out
->   - Notes: Optional notes entry 
+>   - Notes: Optional notes 
 
 **Architecture**
 ### General Usage
