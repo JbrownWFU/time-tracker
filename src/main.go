@@ -36,7 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	
 	// Update job
 	/*
 	_, err = Conn.UpdateJobStatus(jobId, "active")
