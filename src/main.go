@@ -7,6 +7,7 @@ import (
 
 // TODO
 // Put notes in their own table they dont live on Spans
+// Update sql funcs to just work with IDs
 
 // Core structs
 type Job struct {
