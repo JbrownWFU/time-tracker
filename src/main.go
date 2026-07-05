@@ -32,7 +32,7 @@ func main() {
 	// }
 	
 	// Get existing job id
-	jobId, err := Conn.ResolveJob("birdJob2")
+	jobId, err := Conn.ResolveJob("birdJob4")
 	if err != nil {
 		log.Fatal(err)
 	}
