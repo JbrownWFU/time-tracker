@@ -8,7 +8,7 @@ import (
 )
 
 type CLI struct {
-	DB string `help:"Path to sqlite database file." default:"time.db" type:"path"`
+	DB string `help:"Path to sqlite database file. Defaults to ~/.tracker/time.db." type:"path"`
 
 	Create CreateCmd `cmd:"" help:"Create a new job."`
 	Status StatusCmd `cmd:"" help:"Update a job's status."`

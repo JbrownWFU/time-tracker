@@ -28,7 +28,8 @@ created automatically on first run.
 track [--db PATH] <command> [args]
 ```
 
-`--db` is optional and defaults to `time.db` in the current directory.
+`--db` is optional and defaults to `~/.tracker/time.db`, created automatically
+on first run.
 
 | Command | Description |
 |---|---|
@@ -61,7 +62,7 @@ Total: 2h 27m
 - Only **one span can be open at a time, system-wide** — clock out before
   clocking in to a different job. `track out` also errors if the currently
   open span belongs to a different job than the one you named.
-- The database is a plain SQLite file (`time.db` by default). Back it up,
-  copy it, or delete it to reset — `*.db` is already gitignored.
+- The database is a plain SQLite file (`~/.tracker/time.db` by default). Back
+  it up, copy it, or delete it to reset — `*.db` is already gitignored.
 - Output is still pretty basic (`show` just dumps the struct, `list` is
   tab-separated) — see [TODO.md](TODO.md) for known rough edges.

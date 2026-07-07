@@ -1,9 +1,25 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/alecthomas/kong"
 	SqlDB "time-tracker/src"
 )
+
+// defaultDBPath returns ~/.tracker/time.db, creating the .tracker directory if needed.
+func defaultDBPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".tracker")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "time.db"), nil
+}
 
 func main() {
 	var cli CLI
@@ -12,6 +28,14 @@ func main() {
 		kong.Description("A simple time tracking CLI."),
 		kong.UsageOnError(),
 	)
+
+	if cli.DB == "" {
+		path, err := defaultDBPath()
+		if err != nil {
+			ctx.Fatalf("failed to resolve default db path: %v", err)
+		}
+		cli.DB = path
+	}
 
 	db, err := SqlDB.NewSqlConn(cli.DB)
 	if err != nil {
