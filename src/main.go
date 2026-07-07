@@ -71,4 +71,12 @@ func main() {
 	}
 
 	fmt.Printf("End Time: %s\n", time.Now())
+	
+	// Check for open span when there is none
+	openId, err = Conn.GetOpenSpan()
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	fmt.Printf("Open span id: %d\n", openId)
 }

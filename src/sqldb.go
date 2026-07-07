@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -169,8 +170,14 @@ func (s *SqlConn) UpdateJobStatus(id int, status string) (int, error) {
 // startTime lets callers backdate a clock-in (e.g. forgot to clock in
 // yesterday); pass time.Now() for the normal case.
 func (s *SqlConn) WriteSpan(jobId int, startTime time.Time) (int, error) {
-	// Check for open spans
-	
+	openId, err := s.GetOpenSpan()
+	if err != nil {
+		return 0, fmt.Errorf("failed to check for open span: %w", err)
+	}
+	if openId != 0 {
+		return 0, fmt.Errorf("span %d is still open; close it before starting a new one", openId)
+	}
+
 	res, err := s.db.Exec(writeSpan, jobId, startTime.UTC().Format(sqlTimeFormat))
 	if err != nil {
 		return 0, fmt.Errorf("write span failed: %w", err)
@@ -198,12 +205,20 @@ func (s *SqlConn) UpdateSpan(spanId int, endTime time.Time) error {
 
 // open span testing
 // Finds open span on table and returns ID
+// Returns 0 if there are none
 func (s *SqlConn) GetOpenSpan() (int, error) {
-	var id int
+	var id sql.NullInt64
 	err := s.db.QueryRow(getOpenSpanID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, fmt.Errorf("could not get open span: %w", err)
 	}
-	
-	return id, nil
+
+	if !id.Valid {
+		return 0, nil
+	}
+
+	return int(id.Int64), nil
 }
