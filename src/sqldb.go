@@ -1,4 +1,4 @@
-package main
+package SqlDB
 
 import (
 	"database/sql"
@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	sqlTimeFormat = "2006-01-02 15:04:05"
+	SqlTimeFormat = "2006-01-02 15:04:05"
 
 	makeTables = `
 	create table if not exists Jobs (
@@ -51,6 +51,16 @@ const (
 	select id from Jobs
 	where name = ?
 	`
+	listJobs = `
+	select id, name, desc, status from Jobs
+	order by id
+	`
+
+	listSpansByJob = `
+	select id, job_id, start_time, end_time from Spans
+	where job_id = ?
+	order by start_time
+	`
 
 	writeSpan = `
 	insert into Spans (job_id, start_time)
@@ -69,7 +79,32 @@ const (
 	update Spans set end_time = ?
 	where id = ?
 	`
+
+	writeNote = `
+	insert into Notes (entry_id, content)
+	values (?, ?)
+	`
 )
+
+type Job struct {
+	ID     int
+	Name   string
+	Desc   string
+	Status string
+}
+
+type Span struct {
+	ID        int
+	JobID     int
+	StartTime string
+	EndTime   *string
+}
+
+type Note struct {
+	ID      int
+	EntryID int
+	Content string
+}
 
 var validStatuses = []string{"todo", "active", "done"}
 
@@ -90,21 +125,17 @@ func NewSqlConn(path string) (SqlConn, error) {
 		return SqlConn{}, fmt.Errorf("ping: %w", err)
 	}
 
+	if _, err = db.Exec(makeTables); err != nil {
+		db.Close()
+		return SqlConn{}, fmt.Errorf("make tables: %w", err)
+	}
+
 	return SqlConn{db: db}, nil
 }
 
 // Close DB Connection
 func (s *SqlConn) Close() error {
 	return s.db.Close()
-}
-
-func (s *SqlConn) MakeTables() error {
-	_, err := s.db.Exec(makeTables)
-	if err != nil {
-		return fmt.Errorf("make tables: %w", err)
-	}
-
-	return nil
 }
 
 // Job management -----
@@ -130,13 +161,59 @@ func (s *SqlConn) ResolveJob(name string) (int, error) {
 	return id, nil
 }
 
+// List all jobs
+func (s *SqlConn) ListJobs() ([]Job, error) {
+	rows, err := s.db.Query(listJobs)
+	if err != nil {
+		return nil, fmt.Errorf("list jobs failed: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []Job
+	for rows.Next() {
+		var j Job
+		if err := rows.Scan(&j.ID, &j.Name, &j.Desc, &j.Status); err != nil {
+			return nil, fmt.Errorf("failed to scan job row: %w", err)
+		}
+		jobs = append(jobs, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate job rows: %w", err)
+	}
+
+	return jobs, nil
+}
+
+// List all spans for a job, ordered by start time
+func (s *SqlConn) ListSpansByJob(jobId int) ([]Span, error) {
+	rows, err := s.db.Query(listSpansByJob, jobId)
+	if err != nil {
+		return nil, fmt.Errorf("list spans failed: %w", err)
+	}
+	defer rows.Close()
+
+	var spans []Span
+	for rows.Next() {
+		var sp Span
+		if err := rows.Scan(&sp.ID, &sp.JobID, &sp.StartTime, &sp.EndTime); err != nil {
+			return nil, fmt.Errorf("failed to scan span row: %w", err)
+		}
+		spans = append(spans, sp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate span rows: %w", err)
+	}
+
+	return spans, nil
+}
+
 // Write job to storage
 func (s *SqlConn) WriteJob(name string, desc string, status string) (int, error) {
 	if !slices.Contains(validStatuses, status) {
 		return 0, fmt.Errorf("invalid status: %s", status)
 	}
 
-	res, err := s.db.Exec(writeJob, name, desc, status, time.Now().UTC().Format(sqlTimeFormat))
+	res, err := s.db.Exec(writeJob, name, desc, status, time.Now().UTC().Format(SqlTimeFormat))
 	if err != nil {
 		return 0, fmt.Errorf("write job insert failed: %w", err)
 	}
@@ -175,10 +252,18 @@ func (s *SqlConn) WriteSpan(jobId int, startTime time.Time) (int, error) {
 		return 0, fmt.Errorf("failed to check for open span: %w", err)
 	}
 	if openId != 0 {
-		return 0, fmt.Errorf("span %d is still open; close it before starting a new one", openId)
+		openSpan, err := s.GetSpan(openId)
+		if err != nil {
+			return 0, fmt.Errorf("failed to look up open span: %w", err)
+		}
+		openJob, err := s.GetJob(openSpan.JobID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to look up job for open span: %w", err)
+		}
+		return 0, fmt.Errorf("already clocked in to %q; clock out before starting a new one", openJob.Name)
 	}
 
-	res, err := s.db.Exec(writeSpan, jobId, startTime.UTC().Format(sqlTimeFormat))
+	res, err := s.db.Exec(writeSpan, jobId, startTime.UTC().Format(SqlTimeFormat))
 	if err != nil {
 		return 0, fmt.Errorf("write span failed: %w", err)
 	}
@@ -195,7 +280,7 @@ func (s *SqlConn) WriteSpan(jobId int, startTime time.Time) (int, error) {
 // Update span with endtime. endTime lets callers close a span with a past
 // time (e.g. clocking out for a span left open overnight).
 func (s *SqlConn) UpdateSpan(spanId int, endTime time.Time) error {
-	_, err := s.db.Exec(updateSpan, endTime.UTC().Format(sqlTimeFormat), spanId)
+	_, err := s.db.Exec(updateSpan, endTime.UTC().Format(SqlTimeFormat), spanId)
 	if err != nil {
 		return fmt.Errorf("update span failed: %w", err)
 	}
@@ -221,4 +306,32 @@ func (s *SqlConn) GetOpenSpan() (int, error) {
 	}
 
 	return int(id.Int64), nil
+}
+
+// Get span by ID
+func (s *SqlConn) GetSpan(id int) (Span, error) {
+	var sp Span
+	err := s.db.QueryRow(getSpan, id).Scan(&sp.ID, &sp.JobID, &sp.StartTime, &sp.EndTime)
+	if err != nil {
+		return Span{}, err
+	}
+
+	return sp, nil
+}
+
+// Notes -----
+
+// Write note attached to a span
+func (s *SqlConn) WriteNote(spanId int, content string) (int, error) {
+	res, err := s.db.Exec(writeNote, spanId, content)
+	if err != nil {
+		return 0, fmt.Errorf("write note failed: %w", err)
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	return int(id), nil
 }
