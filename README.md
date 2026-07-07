@@ -8,7 +8,7 @@ driver, no CGo needed) for storage.
 ## Build
 
 ```sh
-git clone <this repo>
+git clone https://github.com/JbrownWFU/time-tracker
 cd time-tracker
 go build -o track .
 ```
