@@ -2,9 +2,12 @@ package SqlDB
 
 import (
 	"database/sql"
+	"encoding/csv"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -35,6 +38,9 @@ const (
 		content text
 	)
 	`
+
+	// Job management
+
 	writeJob = `
 	insert into Jobs (name, desc, status, created_at)
 	values (?, ?, ?, ?)
@@ -43,8 +49,11 @@ const (
 	select id, name, desc, status from Jobs
 	where id = ?
 	`
-	updateJob = `
-	update Jobs set status = ? 
+	updateJobDetails = `
+	update Jobs set
+		name = coalesce(?, name),
+		desc = coalesce(?, desc),
+		status = coalesce(?, status)
 	where id = ?
 	`
 	resolveJob = `
@@ -55,6 +64,15 @@ const (
 	select id, name, desc, status from Jobs
 	order by id
 	`
+
+	// If we delete a job should we also delete spans?
+	// Add option in cmd
+	deleteJob = `
+	delete from Jobs
+	where id = ?
+	`
+
+	// Span management
 
 	listSpansByJob = `
 	select id, job_id, start_time, end_time from Spans
@@ -79,6 +97,13 @@ const (
 	update Spans set end_time = ?
 	where id = ?
 	`
+	// Need to get job ID, so need to know job name
+	deleteSpanByJob = `
+	delete from Spans
+	where job_id = ?
+	`
+
+	// Note management
 
 	writeNote = `
 	insert into Notes (entry_id, content)
@@ -226,26 +251,70 @@ func (s *SqlConn) WriteJob(name string, desc string, status string) (int, error)
 	return int(id), nil
 }
 
-// Update job status
-func (s *SqlConn) UpdateJobStatus(id int, status string) (int, error) {
-	// Todo move to API layer - business logic
-	if !slices.Contains(validStatuses, status) {
-		return 0, fmt.Errorf("invalid status: %s", status)
-	}
-
-	_, err := s.db.Exec(updateJob, status, id)
+// Delete Job and  delete spans associated with it.
+// Will implement an archival feature to 'retire' jobs from the active list
+// At that point whats the use in having the 'done' status?
+func (s *SqlConn) DeleteJob(name string) error {
+	// Get job ID
+	id, err := s.ResolveJob(name)
 	if err != nil {
-		return 0, fmt.Errorf("update status failed: %w", err)
+		return err
 	}
 
-	return id, nil
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete Spans first so we never leave spans orphaned by a deleted job
+	if _, err = tx.Exec(deleteSpanByJob, id); err != nil {
+		return err
+	}
+
+	// Delete Job
+	if _, err = tx.Exec(deleteJob, id); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// Update a job's name, description, and/or status. A nil pointer leaves that
+// field unchanged. Returns a friendly error if name collides with another job.
+func (s *SqlConn) UpdateJobDetails(id int, name, desc, status *string) error {
+	if status != nil && !slices.Contains(validStatuses, *status) {
+		return fmt.Errorf("invalid status: %s", *status)
+	}
+
+	_, err := s.db.Exec(updateJobDetails,
+		nullableString(name), nullableString(desc), nullableString(status), id)
+	if err != nil {
+		if name != nil && isUniqueConstraintErr(err) {
+			return fmt.Errorf("a job named %q already exists", *name)
+		}
+		return fmt.Errorf("update job failed: %w", err)
+	}
+
+	return nil
+}
+
+func nullableString(s *string) sql.NullString {
+	if s == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: *s, Valid: true}
+}
+
+func isUniqueConstraintErr(err error) bool {
+	return strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
 // Time spans -----
 
 // Write span with null endtime and return span ID.
 // startTime lets callers backdate a clock-in (e.g. forgot to clock in
-// yesterday); pass time.Now() for the normal case.
+// this morning); pass time.Now() for the normal case.
 func (s *SqlConn) WriteSpan(jobId int, startTime time.Time) (int, error) {
 	openId, err := s.GetOpenSpan()
 	if err != nil {
@@ -334,4 +403,38 @@ func (s *SqlConn) WriteNote(spanId int, content string) (int, error) {
 	}
 
 	return int(id), nil
+}
+
+// Reporting -----
+
+// Write content to fileName
+func WriteReport(content string, fileName string) error {
+	file, err := os.Create(fileName)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(content)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Write rows to fileName as CSV. The first row is expected to be the header.
+func WriteReportCSV(rows [][]string, fileName string) error {
+	file, err := os.Create(fileName)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	w := csv.NewWriter(file)
+	if err := w.WriteAll(rows); err != nil {
+		return err
+	}
+
+	return nil
 }
