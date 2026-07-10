@@ -34,12 +34,14 @@ on first run.
 | Command | Description |
 |---|---|
 | `track create <name> [--desc TEXT] [--status todo\|active\|done]` | Create a new job (default status `todo`) |
-| `track status <name> <todo\|active\|done>` | Update a job's status |
+| `track edit <name> [--name NEW] [--desc TEXT] [--status todo\|active\|done]` | Edit a job's name, description, and/or status |
+| `track status <name> <todo\|active\|done>` | Shorthand for `edit <name> --status <status>` |
+| `track delete <name> [--force]` | Delete a job and all its time spans (prompts for confirmation unless `--force`) |
 | `track show <name>` | Print full details of a job |
 | `track list` | List all jobs |
 | `track in <job>` | Clock in to a job |
 | `track out <job> [notes]` | Clock out of a job, optionally attaching notes |
-| `track report <name>` | Print all time entries for a job with a running total |
+| `track report <name> [--file\|-o PATH]` | Print time entries for a job with a running total, or export to a file |
 
 ## Example
 
@@ -48,6 +50,20 @@ on first run.
 ./track in website
 # ... do some work ...
 ./track out website "fixed the nav bar"
+./track show website
+```
+
+```
+Name:         website
+Status:       todo
+Description:  personal site rebuild
+Time entries: 1
+Total time:   2h 27m
+Clocked in:   no
+```
+
+```sh
+./track edit website --status active
 ./track report website
 ```
 
@@ -57,12 +73,33 @@ Time entries for "website":
 Total: 2h 27m
 ```
 
+```sh
+./track report website --file website-report.csv
+./track delete website --force
+```
+
+## Report export
+
+`track report <name> --file PATH` (or `-o PATH`) writes the report to a file
+instead of stdout. The format is inferred from the file extension:
+
+- `.csv` — header row (`start,end,duration`) followed by one row per entry
+- `.md` — a GitHub-flavored markdown table
+- anything else — plain text, one `start -> end	duration` line per entry
+
 ## Tips
 
 - Only **one span can be open at a time, system-wide** — clock out before
   clocking in to a different job. `track out` also errors if the currently
   open span belongs to a different job than the one you named.
+- `track delete` removes a job and *all* of its time spans in one shot; pass
+  `--force` to skip the `[y/N]` confirmation prompt (useful in scripts).
 - The database is a plain SQLite file (`~/.tracker/time.db` by default). Back
   it up, copy it, or delete it to reset — `*.db` is already gitignored.
-- Output is still pretty basic (`show` just dumps the struct, `list` is
-  tab-separated) — see [TODO.md](TODO.md) for known rough edges.
+
+## Known limitations
+
+- Notes attached via `track out <job> "some note"` are stored but can't yet
+  be viewed from the CLI.
+- No command yet to edit or delete an individual time span (clock-in/out
+  entry) — only whole jobs (`track delete`) can be removed.
