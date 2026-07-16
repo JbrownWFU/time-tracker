@@ -1,4 +1,5 @@
 *.db
 *.env
 ref/
+docs/
 /time-tracker
