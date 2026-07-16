@@ -7,3 +7,15 @@ LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DA
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(MODULE) .
+
+DIST := dist
+
+release: clean-dist
+	GOOS=darwin  GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(DIST)/$(MODULE)-darwin-amd64   .
+	GOOS=darwin  GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(DIST)/$(MODULE)-darwin-arm64   .
+	GOOS=linux   GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(DIST)/$(MODULE)-linux-amd64    .
+	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(DIST)/$(MODULE)-windows-amd64.exe .
+
+clean-dist:
+	rm -rf $(DIST)
+	mkdir -p $(DIST)
