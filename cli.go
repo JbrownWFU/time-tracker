@@ -20,7 +20,9 @@ type CLI struct {
 	List   ListCmd   `cmd:"" help:"List all jobs."`
 	In     InCmd     `cmd:"" help:"Clock in to a job."`
 	Out    OutCmd    `cmd:"" help:"Clock out of a job."`
+	Where  WhereCmd  `cmd:"" help:"Show which job is currently clocked in, and for how long."`
 	Report ReportCmd `cmd:"" help:"Print time entries for a job. Optionally write output to file."`
+	About  AboutCmd  `cmd:"" help:"Print application info."`
 }
 
 type CreateCmd struct {
@@ -68,7 +70,7 @@ func (c *StatusCmd) Run(db *SqlDB.SqlConn) error {
 }
 
 type DeleteCmd struct {
-	Name    string `arg:"" help:"Job name."`
+	Name  string `arg:"" help:"Job name."`
 	Force bool   `help:"Skip the confirmation prompt." default:"false"`
 }
 
@@ -183,28 +185,17 @@ func (c *InCmd) Run(db *SqlDB.SqlConn) error {
 }
 
 type OutCmd struct {
-	Job   string `arg:"" help:"Job name to clock out of."`
+	// Job   string `arg:"" help:"Job name to clock out of."`
 	Notes string `arg:"" optional:"" help:"Optional notes for this time span."`
 }
 
 func (c *OutCmd) Run(db *SqlDB.SqlConn) error {
-	jobId, err := db.ResolveJob(c.Job)
-	if err != nil {
-		return err
-	}
 	spanId, err := db.GetOpenSpan()
 	if err != nil {
 		return err
 	}
 	if spanId == 0 {
 		return fmt.Errorf("no open span to close")
-	}
-	span, err := db.GetSpan(spanId)
-	if err != nil {
-		return err
-	}
-	if span.JobID != jobId {
-		return fmt.Errorf("open span belongs to a different job")
 	}
 
 	ts := time.Now()
@@ -219,8 +210,65 @@ func (c *OutCmd) Run(db *SqlDB.SqlConn) error {
 	return err
 }
 
+// What job am I clocked into?
+// And for how long?
+type WhereCmd struct{}
+
+func (c *WhereCmd) Run(db *SqlDB.SqlConn) error {
+	name, d, err := openSpanStatus(db)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s\t%s\n", name, formatDuration(d))
+	return nil
+}
+
+// openSpanStatus returns the job name and elapsed duration for the
+// currently open span, if any.
+func openSpanStatus(db *SqlDB.SqlConn) (string, time.Duration, error) {
+	spanId, err := db.GetOpenSpan()
+	if err != nil {
+		return "", 0, err
+	}
+	if spanId == 0 {
+		return "", 0, fmt.Errorf("not clocked in")
+	}
+
+	span, err := db.GetSpan(spanId)
+	if err != nil {
+		return "", 0, err
+	}
+	job, err := db.GetJob(span.JobID)
+	if err != nil {
+		return "", 0, err
+	}
+
+	start, err := time.Parse(SqlDB.SqlTimeFormat, span.StartTime)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to parse start time: %w", err)
+	}
+
+	return job.Name, time.Since(start.UTC()), nil
+}
+
+type AboutCmd struct{}
+
+// Print about / version
+func (c *AboutCmd) Run(db *SqlDB.SqlConn) error {
+	fmt.Printf("Version: %s\nDB: %s\nURL: %s\n",
+		db.GetVersion(),
+		db.GetPath(),
+		db.GetURL(),
+	)
+
+	return nil
+}
+
+// There be vibes below
+
 type ReportCmd struct {
-	Name string `arg:"" help:"Job name."`
+	Name string `arg:"" optional:"" help:"Job name. If omitted, prints totals for all jobs."`
 	File string `name:"file" short:"o" help:"Write report to a file instead of stdout. Format is inferred from the extension (.csv, .md, else plain text)."`
 }
 
@@ -233,6 +281,14 @@ type reportRow struct {
 }
 
 func (c *ReportCmd) Run(db *SqlDB.SqlConn) error {
+	if c.Name == "" {
+		return c.runAll(db)
+	}
+	return c.runOne(db)
+}
+
+// runOne prints the full span-by-span breakdown for a single job.
+func (c *ReportCmd) runOne(db *SqlDB.SqlConn) error {
 	id, err := db.ResolveJob(c.Name)
 	if err != nil {
 		return err
@@ -246,36 +302,9 @@ func (c *ReportCmd) Run(db *SqlDB.SqlConn) error {
 		return nil
 	}
 
-	rows := make([]reportRow, 0, len(spans))
-	var total time.Duration
-	for _, sp := range spans {
-		start, err := time.Parse(SqlDB.SqlTimeFormat, sp.StartTime)
-		if err != nil {
-			return fmt.Errorf("failed to parse start time: %w", err)
-		}
-
-		if sp.EndTime == nil {
-			d := time.Since(start.UTC())
-			total += d
-			rows = append(rows, reportRow{
-				Start:    start.Local().Format("2006-01-02 15:04"),
-				End:      "(in progress)",
-				Duration: formatDuration(d),
-			})
-			continue
-		}
-
-		end, err := time.Parse(SqlDB.SqlTimeFormat, *sp.EndTime)
-		if err != nil {
-			return fmt.Errorf("failed to parse end time: %w", err)
-		}
-		d := end.Sub(start)
-		total += d
-		rows = append(rows, reportRow{
-			Start:    start.Local().Format("2006-01-02 15:04"),
-			End:      end.Local().Format("2006-01-02 15:04"),
-			Duration: formatDuration(d),
-		})
+	rows, total, err := spanRows(spans)
+	if err != nil {
+		return err
 	}
 
 	if c.File == "" {
@@ -304,6 +333,80 @@ func (c *ReportCmd) Run(db *SqlDB.SqlConn) error {
 
 	fmt.Printf("Report written to %s\n", c.File)
 	return nil
+}
+
+// runAll prints one total line per job, reusing the same span-duration
+// math as runOne instead of a separate SQL aggregate.
+func (c *ReportCmd) runAll(db *SqlDB.SqlConn) error {
+	if c.File != "" {
+		return fmt.Errorf("--file requires a job name; file export isn't supported for the all-jobs summary yet")
+	}
+
+	jobs, err := db.ListJobs()
+	if err != nil {
+		return err
+	}
+	if len(jobs) == 0 {
+		fmt.Println("No jobs found.")
+		return nil
+	}
+
+	for _, j := range jobs {
+		spans, err := db.ListSpansByJob(j.ID)
+		if err != nil {
+			return err
+		}
+		if len(spans) == 0 {
+			continue
+		}
+
+		_, total, err := spanRows(spans)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s\t%s\n", j.Name, formatDuration(total))
+	}
+
+	return nil
+}
+
+// spanRows converts spans into display rows and sums their durations. An
+// open span (nil EndTime) counts toward the total as time-since-start and
+// is shown as "(in progress)".
+func spanRows(spans []SqlDB.Span) ([]reportRow, time.Duration, error) {
+	rows := make([]reportRow, 0, len(spans))
+	var total time.Duration
+	for _, sp := range spans {
+		start, err := time.Parse(SqlDB.SqlTimeFormat, sp.StartTime)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to parse start time: %w", err)
+		}
+
+		if sp.EndTime == nil {
+			d := time.Since(start.UTC())
+			total += d
+			rows = append(rows, reportRow{
+				Start:    start.Local().Format("2006-01-02 15:04"),
+				End:      "(in progress)",
+				Duration: formatDuration(d),
+			})
+			continue
+		}
+
+		end, err := time.Parse(SqlDB.SqlTimeFormat, *sp.EndTime)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to parse end time: %w", err)
+		}
+		d := end.Sub(start)
+		total += d
+		rows = append(rows, reportRow{
+			Start:    start.Local().Format("2006-01-02 15:04"),
+			End:      end.Local().Format("2006-01-02 15:04"),
+			Duration: formatDuration(d),
+		})
+	}
+
+	return rows, total, nil
 }
 
 func formatDuration(d time.Duration) string {

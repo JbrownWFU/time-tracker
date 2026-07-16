@@ -14,6 +14,9 @@ import (
 )
 
 const (
+	version = "1.0"
+	url     = "https://github.com/JbrownWFU/pkeys"
+
 	SqlTimeFormat = "2006-01-02 15:04:05"
 
 	makeTables = `
@@ -93,6 +96,11 @@ const (
 	select max(id) from Spans
 	where end_time is null
 	`
+	// Get currently clocked in job by name
+	getOpenJobName = `
+	select name from jobs
+	where id = (select job_id from spans where end_time is null);
+	`
 	updateSpan = `
 	update Spans set end_time = ?
 	where id = ?
@@ -134,7 +142,8 @@ type Note struct {
 var validStatuses = []string{"todo", "active", "done"}
 
 type SqlConn struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 // Connect to DB at path / create DB
@@ -155,7 +164,7 @@ func NewSqlConn(path string) (SqlConn, error) {
 		return SqlConn{}, fmt.Errorf("make tables: %w", err)
 	}
 
-	return SqlConn{db: db}, nil
+	return SqlConn{db: db, path: path}, nil
 }
 
 // Close DB Connection
@@ -386,6 +395,22 @@ func (s *SqlConn) GetSpan(id int) (Span, error) {
 	}
 
 	return sp, nil
+}
+
+// Get open job name
+
+// About functionality
+// TODO move somewhere better this is awkward here - info shouldnt be stored here at all
+func (s *SqlConn) GetVersion() string {
+	return version
+}
+
+func (s *SqlConn) GetURL() string {
+	return url
+}
+
+func (s *SqlConn) GetPath() string {
+	return s.path
 }
 
 // Notes -----
