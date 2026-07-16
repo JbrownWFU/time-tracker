@@ -254,14 +254,11 @@ func openSpanStatus(db *SqlDB.SqlConn) (string, time.Duration, error) {
 
 type AboutCmd struct{}
 
-// Print about / version
 func (c *AboutCmd) Run(db *SqlDB.SqlConn) error {
-	fmt.Printf("Version: %s\nDB: %s\nURL: %s\n",
-		db.GetVersion(),
-		db.GetPath(),
-		db.GetURL(),
-	)
-
+	fmt.Printf("Version: %s (%s)\n", version, commit)
+	fmt.Printf("Built:   %s\n", date)
+	fmt.Printf("Repo:    %s\n", githubURL)
+	fmt.Printf("DB:      %s\n", db.GetPath())
 	return nil
 }
 

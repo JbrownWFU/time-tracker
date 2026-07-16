@@ -14,9 +14,6 @@ import (
 )
 
 const (
-	version = "1.0"
-	url     = "https://github.com/JbrownWFU/pkeys"
-
 	SqlTimeFormat = "2006-01-02 15:04:05"
 
 	makeTables = `
@@ -398,16 +395,6 @@ func (s *SqlConn) GetSpan(id int) (Span, error) {
 }
 
 // Get open job name
-
-// About functionality
-// TODO move somewhere better this is awkward here - info shouldnt be stored here at all
-func (s *SqlConn) GetVersion() string {
-	return version
-}
-
-func (s *SqlConn) GetURL() string {
-	return url
-}
 
 func (s *SqlConn) GetPath() string {
 	return s.path

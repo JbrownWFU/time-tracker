@@ -4,9 +4,19 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/alecthomas/kong"
 	SqlDB "time-tracker/src"
+
+	"github.com/alecthomas/kong"
 )
+
+// Set via -ldflags at build time; see Makefile.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
+const githubURL = "https://github.com/JbrownWFU/time-tracker"
 
 // defaultDBPath returns ~/.tracker/time.db, creating the .tracker directory if needed.
 func defaultDBPath() (string, error) {
@@ -22,6 +32,10 @@ func defaultDBPath() (string, error) {
 }
 
 func main() {
+	if len(os.Args) < 2 {
+		os.Args = append(os.Args, "--help")
+	}
+
 	var cli CLI
 	ctx := kong.Parse(&cli,
 		kong.Name("track"),
