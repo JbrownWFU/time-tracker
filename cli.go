@@ -338,10 +338,6 @@ func (c *ReportCmd) runOne(db *SqlDB.SqlConn) error {
 // runAll prints one total line per job, reusing the same span-duration
 // math as runOne instead of a separate SQL aggregate.
 func (c *ReportCmd) runAll(db *SqlDB.SqlConn) error {
-	if c.File != "" {
-		return fmt.Errorf("--file requires a job name; file export isn't supported for the all-jobs summary yet")
-	}
-
 	jobs, err := db.ListJobs()
 	if err != nil {
 		return err
@@ -351,6 +347,7 @@ func (c *ReportCmd) runAll(db *SqlDB.SqlConn) error {
 		return nil
 	}
 
+	var rows []jobTotalRow
 	for _, j := range jobs {
 		spans, err := db.ListSpansByJob(j.ID)
 		if err != nil {
@@ -364,9 +361,32 @@ func (c *ReportCmd) runAll(db *SqlDB.SqlConn) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%s\t%s\n", j.Name, formatDuration(total))
+		rows = append(rows, jobTotalRow{Name: j.Name, Total: formatDuration(total)})
 	}
 
+	if c.File == "" {
+		for _, r := range rows {
+			fmt.Printf("%s\t%s\n", r.Name, r.Total)
+		}
+		return nil
+	}
+
+	switch strings.ToLower(filepath.Ext(c.File)) {
+	case ".csv":
+		if err := SqlDB.WriteReportCSV(jobTotalsCSVRows(rows), c.File); err != nil {
+			return err
+		}
+	case ".md":
+		if err := SqlDB.WriteReport(formatJobTotalsMarkdown(rows), c.File); err != nil {
+			return err
+		}
+	default:
+		if err := SqlDB.WriteReport(formatJobTotalsTxt(rows), c.File); err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("Report written to %s\n", c.File)
 	return nil
 }
 
@@ -439,6 +459,40 @@ func csvRows(rows []reportRow) [][]string {
 	out = append(out, []string{"start", "end", "duration"})
 	for _, r := range rows {
 		out = append(out, []string{r.Start, r.End, r.Duration})
+	}
+	return out
+}
+
+// jobTotalRow is a single job's total, used by the all-jobs report
+// summary across the stdout, txt, markdown, and CSV renderers.
+type jobTotalRow struct {
+	Name  string
+	Total string
+}
+
+func formatJobTotalsTxt(rows []jobTotalRow) string {
+	var b strings.Builder
+	for _, r := range rows {
+		fmt.Fprintf(&b, "%s\t%s\n", r.Name, r.Total)
+	}
+	return b.String()
+}
+
+func formatJobTotalsMarkdown(rows []jobTotalRow) string {
+	var b strings.Builder
+	b.WriteString("| Job | Total |\n")
+	b.WriteString("| --- | --- |\n")
+	for _, r := range rows {
+		fmt.Fprintf(&b, "| %s | %s |\n", r.Name, r.Total)
+	}
+	return b.String()
+}
+
+func jobTotalsCSVRows(rows []jobTotalRow) [][]string {
+	out := make([][]string, 0, len(rows)+1)
+	out = append(out, []string{"job", "total"})
+	for _, r := range rows {
+		out = append(out, []string{r.Name, r.Total})
 	}
 	return out
 }

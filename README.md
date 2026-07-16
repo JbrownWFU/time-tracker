@@ -40,8 +40,10 @@ on first run.
 | `track show <name>` | Print full details of a job |
 | `track list` | List all jobs |
 | `track in <job>` | Clock in to a job |
-| `track out <job> [notes]` | Clock out of a job, optionally attaching notes |
-| `track report <name> [--file\|-o PATH]` | Print time entries for a job with a running total, or export to a file |
+| `track out [notes]` | Clock out of the current job |
+| `track report [name] [--file\|-o PATH]` | Print time entries for a job with a running total, or export to a file. Omit `name` to print totals for all jobs |
+| `track where` | Print the currently clocked in job and duration to now |
+| `track about` | Print version, database path, and project URL |
 
 ## Example
 
@@ -49,10 +51,11 @@ on first run.
 ./track create website --desc "personal site rebuild"
 ./track in website
 # ... do some work ...
-./track out website "fixed the nav bar"
+./track out "fixed the nav bar"
 ./track show website
 ```
 
+`create`
 ```
 Name:         website
 Status:       todo
@@ -67,6 +70,7 @@ Clocked in:   no
 ./track report website
 ```
 
+`report`
 ```
 Time entries for "website":
 2026-07-06 09:15 -> 2026-07-06 11:42	2h 27m
@@ -80,18 +84,21 @@ Total: 2h 27m
 
 ## Report export
 
-`track report <name> --file PATH` (or `-o PATH`) writes the report to a file
+`track report [name] --file PATH` (or `-o PATH`) writes the report to a file
 instead of stdout. The format is inferred from the file extension:
 
-- `.csv` — header row (`start,end,duration`) followed by one row per entry
+- `.csv` — header row followed by one row per entry
 - `.md` — a GitHub-flavored markdown table
-- anything else — plain text, one `start -> end	duration` line per entry
+- anything else — plain text, one line per entry
+
+With a job name, each row is a single time entry
+(`start,end,duration`/`start -> end	duration`). Without a name, each row is
+a job total (`job,total`/`job	total`).
 
 ## Tips
 
 - Only **one span can be open at a time, system-wide** — clock out before
-  clocking in to a different job. `track out` also errors if the currently
-  open span belongs to a different job than the one you named.
+  clocking in to a different job.
 - `track delete` removes a job and *all* of its time spans in one shot; pass
   `--force` to skip the `[y/N]` confirmation prompt (useful in scripts).
 - The database is a plain SQLite file (`~/.tracker/time.db` by default). Back
@@ -99,7 +106,7 @@ instead of stdout. The format is inferred from the file extension:
 
 ## Known limitations
 
-- Notes attached via `track out <job> "some note"` are stored but can't yet
+- Notes attached via `track out "some note"` are stored but can't yet
   be viewed from the CLI.
 - No command yet to edit or delete an individual time span (clock-in/out
   entry) — only whole jobs (`track delete`) can be removed.
