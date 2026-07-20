@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	SqlDB "time-tracker/src"
+	SqlDB "time-tracker/src/sqldb"
 
 	"github.com/alecthomas/kong"
 )

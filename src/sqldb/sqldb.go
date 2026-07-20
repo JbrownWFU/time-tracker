@@ -260,13 +260,7 @@ func (s *SqlConn) WriteJob(name string, desc string, status string) (int, error)
 // Delete Job and  delete spans associated with it.
 // Will implement an archival feature to 'retire' jobs from the active list
 // At that point whats the use in having the 'done' status?
-func (s *SqlConn) DeleteJob(name string) error {
-	// Get job ID
-	id, err := s.ResolveJob(name)
-	if err != nil {
-		return err
-	}
-
+func (s *SqlConn) DeleteJob(id int) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -418,6 +412,8 @@ func (s *SqlConn) WriteNote(spanId int, content string) (int, error) {
 }
 
 // Reporting -----
+// Deprecated: reporting commands were removed from the CLI. These helpers
+// are unused but kept around for now.
 
 // Write content to fileName
 func WriteReport(content string, fileName string) error {
@@ -435,6 +431,7 @@ func WriteReport(content string, fileName string) error {
 	return nil
 }
 
+// Deprecated: unused since reporting commands were removed from the CLI.
 // Write rows to fileName as CSV. The first row is expected to be the header.
 func WriteReportCSV(rows [][]string, fileName string) error {
 	file, err := os.Create(fileName)

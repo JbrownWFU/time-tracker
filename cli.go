@@ -2,11 +2,10 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
-	"strings"
 	"time"
 
-	SqlDB "time-tracker/src"
+	Server "time-tracker/src/server"
+	SqlDB "time-tracker/src/sqldb"
 )
 
 type CLI struct {
@@ -21,10 +20,11 @@ type CLI struct {
 	In     InCmd     `cmd:"" help:"Clock in to a job."`
 	Out    OutCmd    `cmd:"" help:"Clock out of a job."`
 	Where  WhereCmd  `cmd:"" help:"Show which job is currently clocked in, and for how long."`
-	Report ReportCmd `cmd:"" help:"Print time entries for a job. Optionally write output to file."`
 	About  AboutCmd  `cmd:"" help:"Print application info."`
+	Serve  ServeCmd  `cmd:"" help:"Run with localhost web interface."`
 }
 
+// Create a new job
 type CreateCmd struct {
 	Name   string `arg:"" help:"Job name."`
 	Desc   string `help:"Job description." default:""`
@@ -38,6 +38,7 @@ func (c *CreateCmd) Run(db *SqlDB.SqlConn) error {
 	return err
 }
 
+// Edit job details
 type EditCmd struct {
 	Name      string  `arg:"" help:"Job name."`
 	NewName   *string `name:"name" help:"New job name."`
@@ -61,6 +62,7 @@ type StatusCmd struct {
 	Status string `arg:"" enum:"todo,active,done" help:"New status (todo, active, done)."`
 }
 
+// Update a jobs status
 func (c *StatusCmd) Run(db *SqlDB.SqlConn) error {
 	id, err := db.ResolveJob(c.Name)
 	if err != nil {
@@ -74,6 +76,7 @@ type DeleteCmd struct {
 	Force bool   `help:"Skip the confirmation prompt." default:"false"`
 }
 
+// Delete a job and its entries
 func (c *DeleteCmd) Run(db *SqlDB.SqlConn) error {
 	if !c.Force {
 		fmt.Printf("Delete job %q and all its time spans? [y/N] ", c.Name)
@@ -85,7 +88,11 @@ func (c *DeleteCmd) Run(db *SqlDB.SqlConn) error {
 		}
 	}
 
-	if err := db.DeleteJob(c.Name); err != nil {
+	id, err := db.ResolveJob(c.Name)
+	if err != nil {
+		return err
+	}
+	if err := db.DeleteJob(id); err != nil {
 		return err
 	}
 
@@ -97,6 +104,7 @@ type ShowCmd struct {
 	Name string `arg:"" help:"Job name."`
 }
 
+// Show job details
 func (c *ShowCmd) Run(db *SqlDB.SqlConn) error {
 	id, err := db.ResolveJob(c.Name)
 	if err != nil {
@@ -152,6 +160,7 @@ func (c *ShowCmd) Run(db *SqlDB.SqlConn) error {
 
 type ListCmd struct{}
 
+// List all jobs
 func (c *ListCmd) Run(db *SqlDB.SqlConn) error {
 	jobs, err := db.ListJobs()
 	if err != nil {
@@ -172,6 +181,7 @@ type InCmd struct {
 	Job string `arg:"" help:"Job name to clock in to."`
 }
 
+// Clock into a job
 func (c *InCmd) Run(db *SqlDB.SqlConn) error {
 	id, err := db.ResolveJob(c.Job)
 	if err != nil {
@@ -189,6 +199,7 @@ type OutCmd struct {
 	Notes string `arg:"" optional:"" help:"Optional notes for this time span."`
 }
 
+// Clock out of a job
 func (c *OutCmd) Run(db *SqlDB.SqlConn) error {
 	spanId, err := db.GetOpenSpan()
 	if err != nil {
@@ -210,10 +221,10 @@ func (c *OutCmd) Run(db *SqlDB.SqlConn) error {
 	return err
 }
 
-// What job am I clocked into?
-// And for how long?
+// What job am I clocked into now and for how long?
 type WhereCmd struct{}
 
+// Show currently clocked in job and duration if any
 func (c *WhereCmd) Run(db *SqlDB.SqlConn) error {
 	name, d, err := openSpanStatus(db)
 	if err != nil {
@@ -221,6 +232,21 @@ func (c *WhereCmd) Run(db *SqlDB.SqlConn) error {
 	}
 
 	fmt.Printf("%s\t%s\n", name, formatDuration(d))
+	return nil
+}
+
+type ServeCmd struct {
+	Port int `arg:"" default:"8283" help:"Port to serve on (default: 8283)"`
+}
+
+// Run the application as a local web ui with optional port (default 8283)
+func (c *ServeCmd) Run(db *SqlDB.SqlConn) error {
+	// Start server
+
+	if err := Server.Serve(c.Port, db); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -262,234 +288,9 @@ func (c *AboutCmd) Run(db *SqlDB.SqlConn) error {
 	return nil
 }
 
-// There be vibes below
-
-type ReportCmd struct {
-	Name string `arg:"" optional:"" help:"Job name. If omitted, prints totals for all jobs."`
-	File string `name:"file" short:"o" help:"Write report to a file instead of stdout. Format is inferred from the extension (.csv, .md, else plain text)."`
-}
-
-// reportRow is a single formatted time entry, shared across the stdout,
-// txt, markdown, and CSV renderers.
-type reportRow struct {
-	Start    string
-	End      string
-	Duration string
-}
-
-func (c *ReportCmd) Run(db *SqlDB.SqlConn) error {
-	if c.Name == "" {
-		return c.runAll(db)
-	}
-	return c.runOne(db)
-}
-
-// runOne prints the full span-by-span breakdown for a single job.
-func (c *ReportCmd) runOne(db *SqlDB.SqlConn) error {
-	id, err := db.ResolveJob(c.Name)
-	if err != nil {
-		return err
-	}
-	spans, err := db.ListSpansByJob(id)
-	if err != nil {
-		return err
-	}
-	if len(spans) == 0 {
-		fmt.Printf("No time entries found for %q.\n", c.Name)
-		return nil
-	}
-
-	rows, total, err := spanRows(spans)
-	if err != nil {
-		return err
-	}
-
-	if c.File == "" {
-		fmt.Printf("Time entries for %q:\n", c.Name)
-		for _, r := range rows {
-			fmt.Printf("%s -> %s\t%s\n", r.Start, r.End, r.Duration)
-		}
-		fmt.Printf("Total: %s\n", formatDuration(total))
-		return nil
-	}
-
-	switch strings.ToLower(filepath.Ext(c.File)) {
-	case ".csv":
-		if err := SqlDB.WriteReportCSV(csvRows(rows), c.File); err != nil {
-			return err
-		}
-	case ".md":
-		if err := SqlDB.WriteReport(formatMarkdown(rows), c.File); err != nil {
-			return err
-		}
-	default:
-		if err := SqlDB.WriteReport(formatTxt(rows), c.File); err != nil {
-			return err
-		}
-	}
-
-	fmt.Printf("Report written to %s\n", c.File)
-	return nil
-}
-
-// runAll prints one total line per job, reusing the same span-duration
-// math as runOne instead of a separate SQL aggregate.
-func (c *ReportCmd) runAll(db *SqlDB.SqlConn) error {
-	jobs, err := db.ListJobs()
-	if err != nil {
-		return err
-	}
-	if len(jobs) == 0 {
-		fmt.Println("No jobs found.")
-		return nil
-	}
-
-	var rows []jobTotalRow
-	for _, j := range jobs {
-		spans, err := db.ListSpansByJob(j.ID)
-		if err != nil {
-			return err
-		}
-		if len(spans) == 0 {
-			continue
-		}
-
-		_, total, err := spanRows(spans)
-		if err != nil {
-			return err
-		}
-		rows = append(rows, jobTotalRow{Name: j.Name, Total: formatDuration(total)})
-	}
-
-	if c.File == "" {
-		for _, r := range rows {
-			fmt.Printf("%s\t%s\n", r.Name, r.Total)
-		}
-		return nil
-	}
-
-	switch strings.ToLower(filepath.Ext(c.File)) {
-	case ".csv":
-		if err := SqlDB.WriteReportCSV(jobTotalsCSVRows(rows), c.File); err != nil {
-			return err
-		}
-	case ".md":
-		if err := SqlDB.WriteReport(formatJobTotalsMarkdown(rows), c.File); err != nil {
-			return err
-		}
-	default:
-		if err := SqlDB.WriteReport(formatJobTotalsTxt(rows), c.File); err != nil {
-			return err
-		}
-	}
-
-	fmt.Printf("Report written to %s\n", c.File)
-	return nil
-}
-
-// spanRows converts spans into display rows and sums their durations. An
-// open span (nil EndTime) counts toward the total as time-since-start and
-// is shown as "(in progress)".
-func spanRows(spans []SqlDB.Span) ([]reportRow, time.Duration, error) {
-	rows := make([]reportRow, 0, len(spans))
-	var total time.Duration
-	for _, sp := range spans {
-		start, err := time.Parse(SqlDB.SqlTimeFormat, sp.StartTime)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to parse start time: %w", err)
-		}
-
-		if sp.EndTime == nil {
-			d := time.Since(start.UTC())
-			total += d
-			rows = append(rows, reportRow{
-				Start:    start.Local().Format("2006-01-02 15:04"),
-				End:      "(in progress)",
-				Duration: formatDuration(d),
-			})
-			continue
-		}
-
-		end, err := time.Parse(SqlDB.SqlTimeFormat, *sp.EndTime)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to parse end time: %w", err)
-		}
-		d := end.Sub(start)
-		total += d
-		rows = append(rows, reportRow{
-			Start:    start.Local().Format("2006-01-02 15:04"),
-			End:      end.Local().Format("2006-01-02 15:04"),
-			Duration: formatDuration(d),
-		})
-	}
-
-	return rows, total, nil
-}
-
 func formatDuration(d time.Duration) string {
 	d = d.Round(time.Minute)
 	h := d / time.Hour
 	m := (d % time.Hour) / time.Minute
 	return fmt.Sprintf("%dh %dm", h, m)
-}
-
-func formatTxt(rows []reportRow) string {
-	var b strings.Builder
-	for _, r := range rows {
-		fmt.Fprintf(&b, "%s -> %s\t%s\n", r.Start, r.End, r.Duration)
-	}
-	return b.String()
-}
-
-func formatMarkdown(rows []reportRow) string {
-	var b strings.Builder
-	b.WriteString("| Start | End | Duration |\n")
-	b.WriteString("| --- | --- | --- |\n")
-	for _, r := range rows {
-		fmt.Fprintf(&b, "| %s | %s | %s |\n", r.Start, r.End, r.Duration)
-	}
-	return b.String()
-}
-
-func csvRows(rows []reportRow) [][]string {
-	out := make([][]string, 0, len(rows)+1)
-	out = append(out, []string{"start", "end", "duration"})
-	for _, r := range rows {
-		out = append(out, []string{r.Start, r.End, r.Duration})
-	}
-	return out
-}
-
-// jobTotalRow is a single job's total, used by the all-jobs report
-// summary across the stdout, txt, markdown, and CSV renderers.
-type jobTotalRow struct {
-	Name  string
-	Total string
-}
-
-func formatJobTotalsTxt(rows []jobTotalRow) string {
-	var b strings.Builder
-	for _, r := range rows {
-		fmt.Fprintf(&b, "%s\t%s\n", r.Name, r.Total)
-	}
-	return b.String()
-}
-
-func formatJobTotalsMarkdown(rows []jobTotalRow) string {
-	var b strings.Builder
-	b.WriteString("| Job | Total |\n")
-	b.WriteString("| --- | --- |\n")
-	for _, r := range rows {
-		fmt.Fprintf(&b, "| %s | %s |\n", r.Name, r.Total)
-	}
-	return b.String()
-}
-
-func jobTotalsCSVRows(rows []jobTotalRow) [][]string {
-	out := make([][]string, 0, len(rows)+1)
-	out = append(out, []string{"job", "total"})
-	for _, r := range rows {
-		out = append(out, []string{r.Name, r.Total})
-	}
-	return out
 }

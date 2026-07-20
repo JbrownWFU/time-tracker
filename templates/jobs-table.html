@@ -1,0 +1,20 @@
+<table id="jobs-table-inner">
+  <caption>Jobs</caption>
+  <thead>
+    <tr><th>Name</th><th>Status</th><th>Desc</th></tr>
+  </thead>
+  <tbody hx-confirm="Are you sure?" hx-target="closest tr" hx-swap="outerHTML">
+    {{range .}}
+    <tr>
+      <td>{{.Name}}</td>
+      <td>{{.Status}}</td>
+      <td>{{.Desc}}</td>
+      <td>
+        <button class="btn danger" hx-target="#jobs-table" hx-swap="innerHTML" hx-delete="/jobs/{{.ID}}">
+          Delete
+        </button>
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
