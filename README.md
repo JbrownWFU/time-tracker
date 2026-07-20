@@ -108,6 +108,8 @@ Opens a local server at `http://localhost:8283/ui` (or whatever port you
 pass). It's the "admin console" side of this tool — the place for the
 things the CLI deliberately doesn't do:
 
+![Web UI](assets/web-ui.png)
+
 - **Click-to-edit, in place.** Both jobs (name/description/status) and
   individual spans (start time, end time, note) can be edited or deleted
   directly in the table — no separate page, no reload.
