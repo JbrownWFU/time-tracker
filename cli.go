@@ -1,11 +1,11 @@
 package main
 
 import (
+	"encoding/csv"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
-	"encoding/csv"
-	"strconv"
 
 	Server "time-tracker/src/server"
 	SqlDB "time-tracker/src/sqldb"
@@ -183,7 +183,8 @@ func (c *InCmd) Run(db *SqlDB.SqlConn) error {
 
 type OutCmd struct {
 	// Job   string `arg:"" help:"Job name to clock out of."`
-	Notes string `arg:"" optional:"" help:"Optional notes for this time span."`
+	Notes  string `arg:"" optional:"" help:"Optional notes for this time span."`
+	Delete bool   `help:"Discard the open span instead of closing it (undo an accidental clock-in)." default:"false"`
 }
 
 // Clock out of a job
@@ -194,6 +195,14 @@ func (c *OutCmd) Run(db *SqlDB.SqlConn) error {
 	}
 	if spanId == 0 {
 		return fmt.Errorf("no open span to close")
+	}
+
+	if c.Delete {
+		if err := db.DeleteSpan(spanId); err != nil {
+			return err
+		}
+		fmt.Printf("Discarded span %d.\n", spanId)
+		return nil
 	}
 
 	ts := time.Now()
@@ -256,12 +265,12 @@ func formatDuration(d time.Duration) string {
 
 // TODO figure out --from --to
 type ReportCmd struct {
-	Name  string `arg:"Job to report on"`
-	From  string `help:"Start Date (YYYY-MM-DD)" xor:"range"`
-	To    string `help:"End Date (YYYY-MM-DD)"`
-	Today bool   `help:"Report on today" xor:"range"`
-	Week  bool   `help:"Report on this week" xor:"range"`
-	Format string `help:"Output format" ennum:"text, csv" default:"text"`
+	Name   string `arg:"Job to report on"`
+	From   string `help:"Start Date (YYYY-MM-DD)" xor:"range"`
+	To     string `help:"End Date (YYYY-MM-DD)"`
+	Today  bool   `help:"Report on today" xor:"range"`
+	Week   bool   `help:"Report on this week" xor:"range"`
+	Format string `help:"Output format" enum:"text,csv" default:"text"`
 }
 
 // Report on job - full time span printing
@@ -282,14 +291,18 @@ func (c *ReportCmd) Run(db *SqlDB.SqlConn) error {
 		return err
 	}
 
+	notes, err := db.GetJobNotes(id)
+	if err != nil {
+		return err
+	}
+
 	from, to, err := c.dateRange(time.Now())
 	if err != nil {
 		return err
 	}
 	spans = filterSpansByRange(spans, from, to)
 
-	// Print text - will pick output from flag later perhaps
-	out, err := formatReport(c.Format, job, spans)
+	out, err := formatReport(c.Format, job, spans, notes)
 	if err != nil {
 		return err
 	}
@@ -374,8 +387,13 @@ func filterSpansByRange(spans []SqlDB.Span, from, to *time.Time) []SqlDB.Span {
 // (start, end, duration) plus a total line. Signature (job, spans) -> (string, error)
 // is the shape every future formatter should share, so a --format flag can
 // later dispatch to formatReportJSON/CSV/MD the same way.
-func formatReportText(job SqlDB.Job, spans []SqlDB.Span) (string, error) {
+func formatReportText(job SqlDB.Job, spans []SqlDB.Span, notes []SqlDB.Note) (string, error) {
 	var b strings.Builder
+
+	notesBySpan := make(map[int][]SqlDB.Note)
+	for _, n := range notes {
+		notesBySpan[n.EntryID] = append(notesBySpan[n.EntryID], n)
+	}
 
 	fmt.Fprintf(&b, "Report: %s\n", job.Name)
 
@@ -389,7 +407,10 @@ func formatReportText(job SqlDB.Job, spans []SqlDB.Span) (string, error) {
 			dur = sp.EndTime.Sub(sp.StartTime)
 		}
 
-		fmt.Fprintf(&b, "%s -> %s\t%s\n", start, end, formatDuration(dur))
+		fmt.Fprintf(&b, "[%d] %s -> %s\t%s\n", sp.ID, start, end, formatDuration(dur))
+		for _, n := range notesBySpan[sp.ID] {
+			fmt.Fprintf(&b, "  note: %s\n", n.Content)
+		}
 	}
 
 	total, _ := summarizeSpans(spans)
@@ -398,11 +419,16 @@ func formatReportText(job SqlDB.Job, spans []SqlDB.Span) (string, error) {
 	return b.String(), nil
 }
 
-func formatReportCSV(job SqlDB.Job, spans []SqlDB.Span) (string, error) {
+func formatReportCSV(job SqlDB.Job, spans []SqlDB.Span, notes []SqlDB.Note) (string, error) {
 	var b strings.Builder
 	w := csv.NewWriter(&b)
 
-	if err := w.Write([]string{"job", "start", "end", "duration", "minutes"}); err != nil {
+	notesBySpan := make(map[int][]SqlDB.Note)
+	for _, n := range notes {
+		notesBySpan[n.EntryID] = append(notesBySpan[n.EntryID], n)
+	}
+
+	if err := w.Write([]string{"id", "job", "start", "end", "duration", "minutes", "notes"}); err != nil {
 		return "", err
 	}
 
@@ -416,12 +442,19 @@ func formatReportCSV(job SqlDB.Job, spans []SqlDB.Span) (string, error) {
 			dur = sp.EndTime.Sub(sp.StartTime)
 		}
 
+		var noteText []string
+		for _, n := range notesBySpan[sp.ID] {
+			noteText = append(noteText, n.Content)
+		}
+
 		row := []string{
+			strconv.Itoa(sp.ID),
 			job.Name,
 			start,
 			end,
 			formatDuration(dur),
 			strconv.FormatFloat(dur.Minutes(), 'f', 1, 64),
+			strings.Join(noteText, "; "),
 		}
 		if err := w.Write(row); err != nil {
 			return "", err
@@ -432,18 +465,16 @@ func formatReportCSV(job SqlDB.Job, spans []SqlDB.Span) (string, error) {
 	return b.String(), w.Error()
 }
 
-func formatReport(format string, job SqlDB.Job, spans []SqlDB.Span) (string, error) {
+func formatReport(format string, job SqlDB.Job, spans []SqlDB.Span, notes []SqlDB.Note) (string, error) {
 	switch format {
 	case "text":
-		return formatReportText(job, spans)
+		return formatReportText(job, spans, notes)
 	case "csv":
-		return formatReportCSV(job, spans)
+		return formatReportCSV(job, spans, notes)
 	default:
 		return "", fmt.Errorf("unknown format %q", format)
 	}
 }
-
-
 
 // Helpers
 
@@ -486,4 +517,3 @@ func summarizeSpans(spans []SqlDB.Span) (total time.Duration, openSince *time.Ti
 	}
 	return total, openSince
 }
-

@@ -137,6 +137,14 @@ const (
 	insert into Notes (entry_id, content)
 	values (?, ?)
 	`
+
+	// Get all notes for a job's spans
+	getNotesByJob = `
+	select Notes.id, Notes.entry_id, Notes.content from Notes
+	join Spans on Spans.id = Notes.entry_id
+	where Spans.job_id = ?
+	order by Notes.entry_id
+	`
 )
 
 type Job struct {
@@ -412,6 +420,17 @@ func (s *SqlConn) GetSpan(id int) (Span, error) {
 	return scanSpan(s.db.QueryRow(getSpan, id).Scan)
 }
 
+// Delete a single span by ID (used by OutCmd's --delete to discard an open
+// span, as opposed to DeleteJob's bulk deleteSpanByJob)
+func (s *SqlConn) DeleteSpan(id int) error {
+	_, err := s.db.Exec(deleteSpanByID, id)
+	if err != nil {
+		return fmt.Errorf("delete span failed: %w", err)
+	}
+
+	return nil
+}
+
 // Get open job name
 
 func (s *SqlConn) GetPath() string {
@@ -435,6 +454,29 @@ func (s *SqlConn) WriteNote(spanId int, content string) (int, error) {
 	return int(id), nil
 }
 
+// Get all notes for a job, across all its spans
+func (s *SqlConn) GetJobNotes(jobId int) ([]Note, error) {
+	rows, err := s.db.Query(getNotesByJob, jobId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get notes for job with ID %d: %w", jobId, err)
+	}
+	defer rows.Close()
+
+	var notes []Note
+	for rows.Next() {
+		var n Note
+		if err := rows.Scan(&n.ID, &n.EntryID, &n.Content); err != nil {
+			return nil, fmt.Errorf("failed to scan note row: %w", err)
+		}
+		notes = append(notes, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate note rows: %w", err)
+	}
+
+	return notes, nil
+}
+
 // Reporting V1 -----
 // Deprecated: reporting commands were removed from the CLI. These helpers
 // are unused but kept around for now.
@@ -456,13 +498,8 @@ func WriteReport(content string, fileName string) error {
 }
 
 // Reporting V2 -----
-// What we want
-// 1. a total time, num entries, last clocked in, if clocked in now for a job - have that - but this is two queries
-// 2. a flexible, extendible row based formatting to print out total timestamps - bascically sqlite table export
-// with ranges - will add after core is working
 
-// List spans for a job with formatting
-// TODO add --from --to flags
+// List spans for a job
 func (s *SqlConn) GetJobSpans(id int) ([]Span, error) {
 	rows, err := s.db.Query(getSpans, id)
 	if err != nil {

@@ -1,18 +1,58 @@
+{{/*
+  Outer table: one row per job, clicking a row expands a second row
+  underneath it holding that job's time spans (fetched from spans-table.html
+  via GET /jobs/{id}/spans, once, then toggled with hidden).
+
+  Data: []JobRow, where JobRow embeds SqlDB.Job (so .ID/.Name/.Status/.Desc
+  come through directly) plus two computed fields the handler adds:
+    EntryCount int    - len(spans) for this job
+    Total      string - formatDuration(total time) for this job
+*/}}
 <table id="jobs-table-inner">
   <caption>Jobs</caption>
   <thead>
-    <tr><th>Name</th><th>Status</th><th>Desc</th></tr>
-  </thead>
-  <tbody hx-confirm="Are you sure?" hx-target="closest tr" hx-swap="outerHTML">
-    {{range .}}
     <tr>
+      <th></th>
+      <th>Name</th>
+      <th>Status</th>
+      <th>Desc</th>
+      <th>Entries</th>
+      <th>Total time</th>
+      <th></th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .}}
+    <tr class="job-row" data-job-id="{{.ID}}"
+        hx-get="/jobs/{{.ID}}/spans"
+        hx-target="#spans-{{.ID}}"
+        hx-swap="innerHTML"
+        hx-trigger="click once">
+      <td>&#9656;</td>
       <td>{{.Name}}</td>
       <td>{{.Status}}</td>
       <td>{{.Desc}}</td>
+      <td>{{.EntryCount}}</td>
+      <td>{{.Total}}</td>
       <td>
-        <button class="btn danger" hx-target="#jobs-table" hx-swap="innerHTML" hx-delete="/jobs/{{.ID}}">
+        <!-- stopPropagation so clicking the button doesn't also trigger the row's expand -->
+        <button hx-target="#jobs-table" hx-swap="innerHTML"
+                hx-post="/jobs/{{.ID}}" onclick="event.stopPropagation()">
+          In
+        </button>
+      </td>
+      <td>
+        <button hx-target="#jobs-table" hx-swap="innerHTML"
+                hx-delete="/jobs/{{.ID}}" hx-confirm="Delete this job and all its time spans?"
+                onclick="event.stopPropagation()">
           Delete
         </button>
+      </td>
+    </tr>
+    <tr class="spans-row" id="spans-row-{{.ID}}" hidden>
+      <td colspan="8">
+        <div id="spans-{{.ID}}">Loading&hellip;</div>
       </td>
     </tr>
     {{end}}

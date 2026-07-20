@@ -1,0 +1,46 @@
+{{/*
+  Inner fragment: a single job's time spans, rendered into the expand
+  panel under its row in jobs-table.html (GET /jobs/{id}/spans).
+
+  Data: []SpanRow, a small view struct the handler builds from
+  GetJobSpans + GetJobNotes so this template only ever does plain field
+  access - no time formatting or note-joining logic lives in the template:
+    ID       int
+    Start    string - formatted start time
+    End      string - formatted end time, or "open" if still clocked in
+    Duration string - formatDuration(...)
+    Note     string - that span's note(s) joined, or "" if none
+*/}}
+{{if not .}}
+<p><em>No time spans logged for this job yet.</em></p>
+{{else}}
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Start</th>
+      <th>End</th>
+      <th>Duration</th>
+      <th>Note</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .}}
+    <tr>
+      <td>{{.ID}}</td>
+      <td>{{.Start}}</td>
+      <td>{{.End}}</td>
+      <td>{{.Duration}}</td>
+      <td>{{.Note}}</td>
+      <td>
+        <button hx-target="closest tr" hx-swap="outerHTML"
+                hx-delete="/spans/{{.ID}}" hx-confirm="Delete this time span?">
+          Delete
+        </button>
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

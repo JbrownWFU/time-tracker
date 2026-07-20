@@ -3,9 +3,9 @@
     - `report <job>` rebuilt: pulls spans via `GetJobSpans`, formats in Go (`formatReportText`)
     - `--from`/`--to`/`--today`/`--week` range filtering done in Go (`dateRange`, `filterSpansByRange`), not SQL
     - round-ups question resolved: duration rounding happens once in `formatDuration`, not in sqlite
-    - [ ] add `--format` flag + json/csv/md formatters (text-only for now; `formatReportText`'s signature is meant to be copied)
-- [ ] Notes functionality: writing is done (`out <notes>` calls `WriteNote`), but there's no way to list/view/edit notes anywhere (not in `Show`, not in `Report`, no `GetNote`/`ListNotes`)
-- [ ] Add cli function to manage written time (edit/delete a specific span after the fact - no such command exists yet)
+    - [x] add `--format` flag + csv formatter (`formatReportCSV`, dispatched via `formatReport`); json/md still open
+- [x] Notes functionality: `report` now lists notes per span (`GetJobNotes`, joined into both `formatReportText` and `formatReportCSV`'s `notes` column).
+- [x] Decided against `delete-span`/`edit-span` CLI commands (too much CLI clutter for a mistake that's on the user). Instead, `out --delete` discards the currently-open span before it's ever written, combined with the existing one-job-clocked-in-at-a-time guard. Fine-grained span edit/delete is deferred to the web UI.
 - [ ] Build out web ui
     - Fix silent errors on forms / actions (still open - `createJob`/`deleteJob` return `http.Error`, but `static/ui.html`'s `hx-on::after-request` only handles the success case, so failed requests show nothing)
     - Spaces cant be in names (?) - still unresolved, no validation on job name today

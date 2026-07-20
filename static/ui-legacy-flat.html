@@ -28,18 +28,11 @@
       <button type="submit">Create Job</button>
     </form>
   </div>
-  <script>
-    // Clicking a job row toggles its spans panel open/closed. htmx's own
-    // "click once" trigger on the row fetches the fragment the first time;
-    // this just handles show/hide, and works for rows added later by htmx
-    // swaps since it's delegated on body instead of bound per-row.
-    document.body.addEventListener('click', (e) => {
-      const row = e.target.closest('.job-row');
-      if (!row) return;
-
-      const panel = document.getElementById('spans-row-' + row.dataset.jobId);
-      panel.hidden = !panel.hidden;
-    });
-  </script>
+  <!-- Spans -->
+  <div id="spans-table"
+    hx-get="/spans/table"
+    hx-swap="innerHTML"
+    hx-trigger="load">
+  </div>
 </body>
 </html>
