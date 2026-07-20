@@ -2,43 +2,68 @@
 <html lang="en">
 <head>
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js" integrity="sha384-H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="/static/style.css">
   <meta charset="UTF-8">
-  <title>My First Web Page</title>
+  <title>Time Tracker</title>
 </head>
-<body style="background-color: #202020; color: #ffffff;">
-  <div id="jobs-table"
-    hx-get="/jobs/table"
-    hx-swap="innerHTML"
-    hx-trigger="load">
-  </div>
-  <!-- add an entry -->
-  <div>
-    <form hx-post="/jobs/create"
-      hx-target="#jobs-table"
+<body>
+  <div class="page">
+    <div class="page-header">
+      <div id="status-bar" hx-get="/status" hx-trigger="load" hx-swap="innerHTML"></div>
+      <div class="sub">click a row to expand its time spans</div>
+    </div>
+
+    <!-- add an entry -->
+    <div>
+      <h2> Create Job </h2>
+      <form class="create-form" hx-post="/jobs/create"
+        hx-target="#jobs-table"
+        hx-swap="innerHTML"
+        hx-on::after-request="if(event.detail.successful) this.reset()">
+        <input type="text" name="name" placeholder="Name" required>
+        <input type="text" name="desc" placeholder="Description">
+        <select name="status">
+          <option value="todo">Todo</option>
+          <option value="active">Active</option>
+          <option value="done">Done</option>
+        </select>
+        <button type="submit" class="btn-primary">Create Job</button>
+      </form>
+    </div>
+
+    <div id="jobs-table"
+      hx-get="/jobs/table"
       hx-swap="innerHTML"
-      hx-on::after-request="if(event.detail.successful) this.reset()">
-      <input type="text" name="name" placeholder="Name" required>
-      <input type="text" name="desc" placeholder="Description">
-      <select name="status">
-        <option value="todo">Todo</option>
-        <option value="active">Active</option>
-        <option value="done">Done</option>
-      </select>
-      <!-- Button lives on form -->
-      <button type="submit">Create Job</button>
-    </form>
+      hx-trigger="load">
+    </div>
+
   </div>
+
   <script>
-    // Clicking a job row toggles its spans panel open/closed. htmx's own
-    // "click once" trigger on the row fetches the fragment the first time;
-    // this just handles show/hide, and works for rows added later by htmx
-    // swaps since it's delegated on body instead of bound per-row.
+    // Clicking a job row toggles its spans panel open/closed, and the
+    // 'open' class the CSS uses for the highlight + chevron rotation.
+    // htmx's own "click once" trigger on the row fetches the fragment the
+    // first time; this just handles show/hide, and works for rows added
+    // later by htmx swaps since it's delegated on body instead of bound
+    // per-row.
     document.body.addEventListener('click', (e) => {
       const row = e.target.closest('.job-row');
       if (!row) return;
 
       const panel = document.getElementById('spans-row-' + row.dataset.jobId);
       panel.hidden = !panel.hidden;
+      row.classList.toggle('open', !panel.hidden);
+    });
+
+    // In/Out/Edit swap the job row's outerHTML, which drops the 'open'
+    // class even when its spans panel is still expanded underneath. Resync
+    // after any such swap so the highlight/chevron stay correct.
+    document.body.addEventListener('htmx:afterSwap', (e) => {
+      const row = e.target.closest && e.target.closest('.job-row');
+      if (!row) return;
+
+      const panel = document.getElementById('spans-row-' + row.dataset.jobId);
+      if (panel) row.classList.toggle('open', !panel.hidden);
     });
   </script>
 </body>

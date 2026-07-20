@@ -1,0 +1,30 @@
+{{/*
+  A single job's edit <tr> (GET /jobs/{id}/edit). A <tr> can't be wrapped
+  in a <form>, so Save uses hx-include="closest tr" to gather these inputs
+  instead. Cancel reloads job-display-row.html via GET /jobs/{id}.
+
+  Data: JobRow (see server.go) - .Name/.Desc/.Status seed the current values.
+*/}}
+<tr id="job-row-{{.ID}}">
+  <td></td>
+  <td><input type="text" name="name" value="{{.Name}}"></td>
+  <td>
+    <select name="status">
+      <option value="todo" {{if eq .Status "todo"}}selected{{end}}>todo</option>
+      <option value="active" {{if eq .Status "active"}}selected{{end}}>active</option>
+      <option value="done" {{if eq .Status "done"}}selected{{end}}>done</option>
+    </select>
+  </td>
+  <td><input type="text" name="desc" value="{{.Desc}}"></td>
+  <td>{{.EntryCount}}</td>
+  <td>{{.Total}}</td>
+  <td class="actions">
+    <button class="btn-primary" hx-put="/jobs/{{.ID}}" hx-include="closest tr"
+            hx-target="#job-row-{{.ID}}" hx-swap="outerHTML">
+      Save
+    </button>
+    <button class="btn-ghost" hx-get="/jobs/{{.ID}}" hx-target="#job-row-{{.ID}}" hx-swap="outerHTML">
+      Cancel
+    </button>
+  </td>
+</tr>

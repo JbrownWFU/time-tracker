@@ -1,4 +1,5 @@
 **TODO**
+- [x] Embed needed dirs (static/ templates/) - `//go:embed static templates` lives in `assets.go` at the repo root (package main), since the directive must sit alongside the embedded dirs; threaded through as `embed.FS` into `Server.Serve`. `template.ParseGlob`/`http.ServeFile`/`http.FileServer(http.Dir(...))` swapped for their `*FS` embed-aware equivalents (`ParseFS`, `ServeFileFS`, `FileServerFS` + `fs.Sub`). Verified by running the built binary from a directory with no `static/`/`templates/` on disk at all.
 - [x] Removed reporting - to rebuild
     - `report <job>` rebuilt: pulls spans via `GetJobSpans`, formats in Go (`formatReportText`)
     - `--from`/`--to`/`--today`/`--week` range filtering done in Go (`dateRange`, `filterSpansByRange`), not SQL
@@ -6,10 +7,15 @@
     - [x] add `--format` flag + csv formatter (`formatReportCSV`, dispatched via `formatReport`); json/md still open
 - [x] Notes functionality: `report` now lists notes per span (`GetJobNotes`, joined into both `formatReportText` and `formatReportCSV`'s `notes` column).
 - [x] Decided against `delete-span`/`edit-span` CLI commands (too much CLI clutter for a mistake that's on the user). Instead, `out --delete` discards the currently-open span before it's ever written, combined with the existing one-job-clocked-in-at-a-time guard. Fine-grained span edit/delete is deferred to the web UI.
-- [ ] Build out web ui
-    - Fix silent errors on forms / actions (still open - `createJob`/`deleteJob` return `http.Error`, but `static/ui.html`'s `hx-on::after-request` only handles the success case, so failed requests show nothing)
+- [x] Build out web ui - nested expandable table, jobs and spans both editable in-place
+    - Jobs list as an outer table, click a row to expand its spans in a nested table underneath (`GET /jobs/{id}/spans`), lazy-loaded once via htmx `click once`
+    - Click-to-edit for both jobs (name/desc/status) and spans (start/end/note), htmx's [click-to-edit pattern](https://htmx.org/examples/click-to-edit/) adapted for table rows: `hx-include="closest tr"` on Save instead of wrapping a `<tr>` in a `<form>` (invalid HTML)
+    - Clock in/out from the job row itself; a job's total time/entry count and every *other* job's `In`-disabled state stay in sync live via `hx-swap-oob` (`renderJobRowOOB`, `renderOtherJobRowsOOB`) - no full-table reloads, no polling
+    - Header status bar: DB path + a clocked-in/out pill, refreshed the same OOB way from `clockIn`/`clockOut`. Known gap: not wired into span edits/deletes or job delete, so a job-delete-while-clocked-in or a span edit that closes/reopens the open span won't update the pill until the next page load - acceptable tradeoff for a single-user local tool
+    - Dark-only theme, violet/"obsidian" accents used sparingly (`static/style.css`)
+    - Fixed a real layout bug: display and edit rows had mismatched `<td>` counts, causing the whole table to reflow when any row toggled edit mode. Fixed via a single consolidated `actions` cell per row (present in both display/edit templates) plus `colgroup`-locked column widths
+    - Fix silent errors on forms / actions - still open: server-side error handling is now correct (`createJob` no longer double-writes on failure), but `static/ui.html`'s `hx-on::after-request` still only handles the success case, so a failed create still shows nothing in the UI
     - Spaces cant be in names (?) - still unresolved, no validation on job name today
-    - web ui only supports create/list/delete jobs - no clock in/out, no time display
 - [x] Add `where` command to return job name currently clocked into
 - [x] If clocked in, `out` will automatically clock you out without providing a job name
 - [x] Span parsing centralized: `Span.StartTime`/`EndTime` are now `time.Time` (parsed once in `scanSpan`), with `summarizeSpans` shared by `Show` and `Where`

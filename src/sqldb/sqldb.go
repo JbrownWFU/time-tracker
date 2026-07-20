@@ -119,6 +119,14 @@ const (
 	where id = ?
 	`
 
+	// Edit a span's start/end time
+	updateSpanDetails = `
+	update Spans set
+		start_time = coalesce(?, start_time),
+		end_time = coalesce(?, end_time)
+	where id = ?
+	`
+
 	// Find open span
 	getOpenSpanID = `
 	select max(id) from Spans
@@ -144,6 +152,19 @@ const (
 	join Spans on Spans.id = Notes.entry_id
 	where Spans.job_id = ?
 	order by Notes.entry_id
+	`
+
+	// Get all notes for a single span
+	getNotesBySpan = `
+	select id, entry_id, content from Notes
+	where entry_id = ?
+	order by id
+	`
+
+	// Clear a span's existing notes (used when replacing a note on edit)
+	deleteNotesBySpan = `
+	delete from Notes
+	where entry_id = ?
 	`
 )
 
@@ -431,6 +452,23 @@ func (s *SqlConn) DeleteSpan(id int) error {
 	return nil
 }
 
+// Update a span's start and/or end time. A nil pointer leaves that field unchanged.
+func (s *SqlConn) UpdateSpanDetails(id int, start, end *time.Time) error {
+	_, err := s.db.Exec(updateSpanDetails, nullableTime(start), nullableTime(end), id)
+	if err != nil {
+		return fmt.Errorf("update span failed: %w", err)
+	}
+
+	return nil
+}
+
+func nullableTime(t *time.Time) sql.NullString {
+	if t == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: t.UTC().Format(SqlTimeFormat), Valid: true}
+}
+
 // Get open job name
 
 func (s *SqlConn) GetPath() string {
@@ -475,6 +513,50 @@ func (s *SqlConn) GetJobNotes(jobId int) ([]Note, error) {
 	}
 
 	return notes, nil
+}
+
+// Get all notes for a single span
+func (s *SqlConn) GetSpanNotes(spanId int) ([]Note, error) {
+	rows, err := s.db.Query(getNotesBySpan, spanId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get notes for span with ID %d: %w", spanId, err)
+	}
+	defer rows.Close()
+
+	var notes []Note
+	for rows.Next() {
+		var n Note
+		if err := rows.Scan(&n.ID, &n.EntryID, &n.Content); err != nil {
+			return nil, fmt.Errorf("failed to scan note row: %w", err)
+		}
+		notes = append(notes, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate note rows: %w", err)
+	}
+
+	return notes, nil
+}
+
+// Replace a span's note(s) with a single new note. Passing an empty string
+// clears the span's notes entirely.
+func (s *SqlConn) SetSpanNote(spanId int, content string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(deleteNotesBySpan, spanId); err != nil {
+		return fmt.Errorf("failed to clear existing notes: %w", err)
+	}
+	if content != "" {
+		if _, err := tx.Exec(writeNote, spanId, content); err != nil {
+			return fmt.Errorf("failed to write note: %w", err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 // Reporting V1 -----

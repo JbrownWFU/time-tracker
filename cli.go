@@ -239,7 +239,7 @@ type ServeCmd struct {
 func (c *ServeCmd) Run(db *SqlDB.SqlConn) error {
 	// Start server
 
-	if err := Server.Serve(c.Port, db); err != nil {
+	if err := Server.Serve(c.Port, db, assets); err != nil {
 		return err
 	}
 

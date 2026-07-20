@@ -1,0 +1,28 @@
+{{/*
+  A single span's edit <tr> (GET /spans/{id}/edit). A <tr> can't be wrapped
+  in a <form>, so Save uses hx-include="closest tr" to gather these inputs
+  instead. Cancel reloads span-display-row.html via GET /spans/{id}.
+
+  Leaving Start/End blank on save keeps that field unchanged (coalesce on
+  the DB side) rather than clearing it - so this can't be used to reopen a
+  closed span, only to correct a mistyped time.
+
+  Data: SpanRow (see server.go) - .StartInput/.EndInput feed the
+  datetime-local values ("2006-01-02T15:04"); .EndInput is empty if open.
+*/}}
+<tr id="span-row-{{.ID}}">
+  <td>{{.ID}}</td>
+  <td><input type="datetime-local" name="start" value="{{.StartInput}}"></td>
+  <td><input type="datetime-local" name="end" value="{{.EndInput}}"></td>
+  <td>{{.Duration}}</td>
+  <td><input type="text" name="note" value="{{.Note}}"></td>
+  <td class="actions">
+    <button class="btn-primary" hx-put="/spans/{{.ID}}" hx-include="closest tr"
+            hx-target="#span-row-{{.ID}}" hx-swap="outerHTML">
+      Save
+    </button>
+    <button class="btn-ghost" hx-get="/spans/{{.ID}}" hx-target="#span-row-{{.ID}}" hx-swap="outerHTML">
+      Cancel
+    </button>
+  </td>
+</tr>

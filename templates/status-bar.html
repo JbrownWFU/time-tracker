@@ -1,0 +1,15 @@
+{{/*
+  Header status readout: DB path (replaces the old static "Jobs" title)
+  and a clocked-in/out pill. Loaded once on page load (GET /status) and
+  kept live by In/Out's OOB refresh (server.go's renderStatusBarOOB) -
+  not wired into span edits/deletes or job delete, so a job-delete-while-
+  clocked-in or a span edit that closes/reopens the open span won't
+  update this pill until the next page load.
+
+  Data: StatusView (see server.go)
+*/}}
+<h1>{{.DBPath}}</h1>
+<span class="clock-pill {{if .ClockedIn}}clock-pill-in{{else}}clock-pill-out{{end}}">
+  <span class="dot"></span>
+  {{if .ClockedIn}}Clocked in &mdash; {{.JobName}}{{else}}Clocked out{{end}}
+</span>

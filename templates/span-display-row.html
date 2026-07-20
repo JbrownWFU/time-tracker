@@ -1,0 +1,23 @@
+{{/*
+  A single span's display <tr>. Ranged over by spans-table.html for a job's
+  panel listing, and also rendered standalone as the Cancel target after
+  Edit (GET /spans/{id}).
+
+  Data: SpanRow (see server.go)
+*/}}
+<tr id="span-row-{{.ID}}">
+  <td>{{.ID}}</td>
+  <td>{{.Start}}</td>
+  <td>{{.End}}</td>
+  <td>{{.Duration}}</td>
+  <td>{{.Note}}</td>
+  <td class="actions">
+    <button class="btn-ghost" hx-get="/spans/{{.ID}}/edit" hx-target="#span-row-{{.ID}}" hx-swap="outerHTML">
+      Edit
+    </button>
+    <button class="btn-danger" hx-target="closest tr" hx-swap="outerHTML"
+            hx-delete="/spans/{{.ID}}" hx-confirm="Delete this time span?">
+      Delete
+    </button>
+  </td>
+</tr>

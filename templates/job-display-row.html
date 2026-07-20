@@ -1,0 +1,51 @@
+{{/*
+  A single job's display <tr>. Ranged over inside job-row.html's tbody for
+  the full listing, and also rendered standalone as:
+    - the Cancel target after Edit (GET /jobs/{id})
+    - the result of In/Out (POST /jobs/{id}, POST /jobs/{id}/out)
+    - an out-of-band refresh after a span edit/delete changes this job's
+      entry count or total (see server.go's renderJobRowOOB) - in that case
+      .OOB is true, adding hx-swap-oob so htmx finds this row by ID and
+      updates it even though it wasn't the element targeted by the request.
+
+  Data: JobRow (see server.go)
+*/}}
+<tr id="job-row-{{.ID}}" class="job-row" data-job-id="{{.ID}}"
+    {{if .OOB}}hx-swap-oob="true"{{end}}
+    hx-get="/jobs/{{.ID}}/spans"
+    hx-target="#spans-{{.ID}}"
+    hx-swap="innerHTML"
+    hx-trigger="click once">
+  <td><span class="chevron">&#9656;</span></td>
+  <td>{{.Name}}</td>
+  <td><span class="status status-{{.Status}}">{{.Status}}</span></td>
+  <td>{{.Desc}}</td>
+  <td>{{.EntryCount}}</td>
+  <td>{{.Total}}</td>
+  <td class="actions">
+    {{if .Open}}
+    <!-- Edit/Delete are hidden while clocked in - keeps this cell to one
+         control instead of a notes box plus three buttons crammed together. -->
+    <form class="inline-form" hx-post="/jobs/{{.ID}}/out" hx-target="#job-row-{{.ID}}" hx-swap="outerHTML"
+          onclick="event.stopPropagation()">
+      <input type="text" name="notes" placeholder="Notes (optional)">
+      <button type="submit" class="btn-primary">Out</button>
+    </form>
+    {{else}}
+    <button class="btn-primary" hx-target="#job-row-{{.ID}}" hx-swap="outerHTML"
+            hx-post="/jobs/{{.ID}}" onclick="event.stopPropagation()"
+            {{if .Locked}}disabled{{end}}>
+      In
+    </button>
+    <button class="btn-ghost" hx-get="/jobs/{{.ID}}/edit" hx-target="#job-row-{{.ID}}" hx-swap="outerHTML"
+            onclick="event.stopPropagation()">
+      Edit
+    </button>
+    <button class="btn-danger" hx-target="closest tbody" hx-swap="outerHTML"
+            hx-delete="/jobs/{{.ID}}" hx-confirm="Delete this job and all its time spans?"
+            onclick="event.stopPropagation()">
+      Delete
+    </button>
+    {{end}}
+  </td>
+</tr>

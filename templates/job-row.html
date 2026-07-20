@@ -1,0 +1,14 @@
+{{/*
+  A single job's tbody: its display row plus a (initially hidden) spans-panel
+  row. Ranged over by jobs-table.html for the full listing.
+
+  Data: JobRow (see server.go)
+*/}}
+<tbody id="job-{{.ID}}">
+  {{template "job-display-row.html" .}}
+  <tr class="spans-row" id="spans-row-{{.ID}}" hidden>
+    <td colspan="7">
+      <div id="spans-{{.ID}}">Loading&hellip;</div>
+    </td>
+  </tr>
+</tbody>
