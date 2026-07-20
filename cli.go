@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"encoding/csv"
+	"strconv"
 
 	Server "time-tracker/src/server"
 	SqlDB "time-tracker/src/sqldb"
@@ -12,18 +14,18 @@ import (
 type CLI struct {
 	DB string `help:"Path to sqlite database file. Defaults to ~/.tracker/time.db." type:"path"`
 
+	About  AboutCmd  `cmd:"" help:"Print application info."`
 	Create CreateCmd `cmd:"" help:"Create a new job."`
+	Delete DeleteCmd `cmd:"" help:"Delete a job and all its time spans."`
 	Edit   EditCmd   `cmd:"" help:"Edit a job's name, description, and/or status."`
 	Status StatusCmd `cmd:"" help:"Shorthand for 'edit <job> --status <status>'."`
-	Delete DeleteCmd `cmd:"" help:"Delete a job and all its time spans."`
 	Show   ShowCmd   `cmd:"" help:"Show full details of a job."`
 	List   ListCmd   `cmd:"" help:"List all jobs."`
 	In     InCmd     `cmd:"" help:"Clock in to a job."`
 	Out    OutCmd    `cmd:"" help:"Clock out of a job."`
-	Where  WhereCmd  `cmd:"" help:"Show which job is currently clocked in, and for how long."`
-	About  AboutCmd  `cmd:"" help:"Print application info."`
-	Serve  ServeCmd  `cmd:"" help:"Run with localhost web interface."`
 	Report ReportCmd `cmd:"" help:"Print all time entries for a job."`
+	Where  WhereCmd  `cmd:"" help:"Show which job is currently clocked in, and for how long."`
+	Serve  ServeCmd  `cmd:"" help:"Run with localhost web interface."`
 }
 
 // Create a new job
@@ -259,6 +261,7 @@ type ReportCmd struct {
 	To    string `help:"End Date (YYYY-MM-DD)"`
 	Today bool   `help:"Report on today" xor:"range"`
 	Week  bool   `help:"Report on this week" xor:"range"`
+	Format string `help:"Output format" ennum:"text, csv" default:"text"`
 }
 
 // Report on job - full time span printing
@@ -286,7 +289,7 @@ func (c *ReportCmd) Run(db *SqlDB.SqlConn) error {
 	spans = filterSpansByRange(spans, from, to)
 
 	// Print text - will pick output from flag later perhaps
-	out, err := formatReportText(job, spans)
+	out, err := formatReport(c.Format, job, spans)
 	if err != nil {
 		return err
 	}
@@ -394,6 +397,53 @@ func formatReportText(job SqlDB.Job, spans []SqlDB.Span) (string, error) {
 
 	return b.String(), nil
 }
+
+func formatReportCSV(job SqlDB.Job, spans []SqlDB.Span) (string, error) {
+	var b strings.Builder
+	w := csv.NewWriter(&b)
+
+	if err := w.Write([]string{"job", "start", "end", "duration", "minutes"}); err != nil {
+		return "", err
+	}
+
+	for _, sp := range spans {
+		start := sp.StartTime.Local().Format("2006-01-02 15:04")
+
+		end := "open"
+		dur := time.Since(sp.StartTime)
+		if sp.EndTime != nil {
+			end = sp.EndTime.Local().Format("2006-01-02 15:04")
+			dur = sp.EndTime.Sub(sp.StartTime)
+		}
+
+		row := []string{
+			job.Name,
+			start,
+			end,
+			formatDuration(dur),
+			strconv.FormatFloat(dur.Minutes(), 'f', 1, 64),
+		}
+		if err := w.Write(row); err != nil {
+			return "", err
+		}
+	}
+
+	w.Flush()
+	return b.String(), w.Error()
+}
+
+func formatReport(format string, job SqlDB.Job, spans []SqlDB.Span) (string, error) {
+	switch format {
+	case "text":
+		return formatReportText(job, spans)
+	case "csv":
+		return formatReportCSV(job, spans)
+	default:
+		return "", fmt.Errorf("unknown format %q", format)
+	}
+}
+
+
 
 // Helpers
 

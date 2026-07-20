@@ -15,6 +15,7 @@ import (
 const (
 	SqlTimeFormat = "2006-01-02 15:04:05"
 
+	// Create schema
 	makeTables = `
 	create table if not exists Jobs (
 		id integer primary key,
@@ -40,76 +41,95 @@ const (
 
 	// Job management
 
-	writeJob = `
+	// Create a new job
+	createJob = `
 	insert into Jobs (name, desc, status, created_at)
 	values (?, ?, ?, ?)
 	`
+
+	// Get a job
 	getJob = `
 	select id, name, desc, status from Jobs
 	where id = ?
 	`
-	updateJobDetails = `
+
+	// Get all jobs
+	getJobs = `
+	select id, name, desc, status from Jobs
+	order by id
+	`
+
+	// Update a job
+	updateJob = `
 	update Jobs set
 		name = coalesce(?, name),
 		desc = coalesce(?, desc),
 		status = coalesce(?, status)
 	where id = ?
 	`
-	resolveJob = `
-	select id from Jobs
-	where name = ?
-	`
-	listJobs = `
-	select id, name, desc, status from Jobs
-	order by id
-	`
 
-	// If we delete a job should we also delete spans?
-	// Add option in cmd
+	// Delete a job
 	deleteJob = `
 	delete from Jobs
 	where id = ?
 	`
 
+	// internal helper to get job by name
+	resolveJob = `
+	select id from Jobs
+	where name = ?
+	`
+
 	// Span management
 
-	// Get spans for a job
-	getJobSpans = `
+	// Create a span
+	createSpan = `
+	insert into Spans (job_id, start_time)
+	values (?, ?)
+	`
+
+	// Get all spans for a job
+	getSpans = `
 	select id, job_id, start_time, end_time from Spans
 	where job_id = ?
 	order by start_time
 	`
 
-	writeSpan = `
-	insert into Spans (job_id, start_time)
-	values (?, ?)
-	`
+	// Get a single span by ID
 	getSpan = `
 	select * from Spans
 	where id = ?
 	`
-	// Find open time entries
-	getOpenSpanID = `
-	select max(id) from Spans
-	where end_time is null
-	`
-	// Get currently clocked in job by name
-	getOpenJobName = `
-	select name from jobs
-	where id = (select job_id from spans where end_time is null);
-	`
+
+	// Update span detaiils (?)
 	updateSpan = `
 	update Spans set end_time = ?
 	where id = ?
 	`
-	// Need to get job ID, so need to know job name
+
+	// Delete spans by job ID
 	deleteSpanByJob = `
 	delete from Spans
 	where job_id = ?
 	`
 
-	// Reporting V2
+	// Delete spans by span ID (for spot removals)
+	deleteSpanByID = `
+	delete from Spans
+	where id = ?
+	`
 
+	// Find open span
+	getOpenSpanID = `
+	select max(id) from Spans
+	where end_time is null
+	`
+
+	// Get currently clocked in job by name
+	getOpenJobName = `
+	select name from jobs
+	where id = (select job_id from spans where end_time is null);
+	`
 
 	// Note management
 
@@ -227,7 +247,7 @@ func (s *SqlConn) ResolveJob(name string) (int, error) {
 
 // List all jobs
 func (s *SqlConn) ListJobs() ([]Job, error) {
-	rows, err := s.db.Query(listJobs)
+	rows, err := s.db.Query(getJobs)
 	if err != nil {
 		return nil, fmt.Errorf("list jobs failed: %w", err)
 	}
@@ -254,7 +274,7 @@ func (s *SqlConn) WriteJob(name string, desc string, status string) (int, error)
 		return 0, fmt.Errorf("invalid status: %s", status)
 	}
 
-	res, err := s.db.Exec(writeJob, name, desc, status, time.Now().UTC().Format(SqlTimeFormat))
+	res, err := s.db.Exec(createJob, name, desc, status, time.Now().UTC().Format(SqlTimeFormat))
 	if err != nil {
 		return 0, fmt.Errorf("write job insert failed: %w", err)
 	}
@@ -297,7 +317,7 @@ func (s *SqlConn) UpdateJobDetails(id int, name, desc, status *string) error {
 		return fmt.Errorf("invalid status: %s", *status)
 	}
 
-	_, err := s.db.Exec(updateJobDetails,
+	_, err := s.db.Exec(updateJob,
 		nullableString(name), nullableString(desc), nullableString(status), id)
 	if err != nil {
 		if name != nil && isUniqueConstraintErr(err) {
@@ -342,7 +362,7 @@ func (s *SqlConn) WriteSpan(jobId int, startTime time.Time) (int, error) {
 		return 0, fmt.Errorf("already clocked in to %q; clock out before starting a new one", openJob.Name)
 	}
 
-	res, err := s.db.Exec(writeSpan, jobId, startTime.UTC().Format(SqlTimeFormat))
+	res, err := s.db.Exec(createSpan, jobId, startTime.UTC().Format(SqlTimeFormat))
 	if err != nil {
 		return 0, fmt.Errorf("write span failed: %w", err)
 	}
@@ -444,7 +464,7 @@ func WriteReport(content string, fileName string) error {
 // List spans for a job with formatting
 // TODO add --from --to flags
 func (s *SqlConn) GetJobSpans(id int) ([]Span, error) {
-	rows, err := s.db.Query(getJobSpans, id)
+	rows, err := s.db.Query(getSpans, id)
 	if err != nil {
 		return []Span{}, fmt.Errorf("failed to get spans for job with ID %d: %w", id, err)
 	}
