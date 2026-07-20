@@ -1,9 +1,15 @@
 **TODO**
-- [ ] Add notes functionality
-- [ ] Removed reporting - to rebuild
-- [ ] Add cli function to manage written time
+- [x] Removed reporting - to rebuild
+    - `report <job>` rebuilt: pulls spans via `GetJobSpans`, formats in Go (`formatReportText`)
+    - `--from`/`--to`/`--today`/`--week` range filtering done in Go (`dateRange`, `filterSpansByRange`), not SQL
+    - round-ups question resolved: duration rounding happens once in `formatDuration`, not in sqlite
+    - [ ] add `--format` flag + json/csv/md formatters (text-only for now; `formatReportText`'s signature is meant to be copied)
+- [ ] Notes functionality: writing is done (`out <notes>` calls `WriteNote`), but there's no way to list/view/edit notes anywhere (not in `Show`, not in `Report`, no `GetNote`/`ListNotes`)
+- [ ] Add cli function to manage written time (edit/delete a specific span after the fact - no such command exists yet)
 - [ ] Build out web ui
-    - Fix silent errors on forms / actions
-    - Spaces cant be in names (?)
+    - Fix silent errors on forms / actions (still open - `createJob`/`deleteJob` return `http.Error`, but `static/ui.html`'s `hx-on::after-request` only handles the success case, so failed requests show nothing)
+    - Spaces cant be in names (?) - still unresolved, no validation on job name today
+    - web ui only supports create/list/delete jobs - no clock in/out, no time display
 - [x] Add `where` command to return job name currently clocked into
-- [x] If clocked in, `out` will automatically clock you out without providing a job name 
+- [x] If clocked in, `out` will automatically clock you out without providing a job name
+- [x] Span parsing centralized: `Span.StartTime`/`EndTime` are now `time.Time` (parsed once in `scanSpan`), with `summarizeSpans` shared by `Show` and `Where`

@@ -2,7 +2,6 @@ package SqlDB
 
 import (
 	"database/sql"
-	"encoding/csv"
 	"errors"
 	"fmt"
 	"os"
@@ -74,7 +73,8 @@ const (
 
 	// Span management
 
-	listSpansByJob = `
+	// Get spans for a job
+	getJobSpans = `
 	select id, job_id, start_time, end_time from Spans
 	where job_id = ?
 	order by start_time
@@ -108,6 +108,9 @@ const (
 	where job_id = ?
 	`
 
+	// Reporting V2
+
+
 	// Note management
 
 	writeNote = `
@@ -123,11 +126,41 @@ type Job struct {
 	Status string
 }
 
+// StartTime and EndTime are parsed to time.Time at the point rows are
+// scanned (scanSpan), so callers never deal with the on-disk string format.
+// EndTime is nil for an open (still clocked-in) span.
 type Span struct {
 	ID        int
 	JobID     int
-	StartTime string
-	EndTime   *string
+	StartTime time.Time
+	EndTime   *time.Time
+}
+
+// scanSpan reads one Spans row and parses its stored time strings into time fields
+func scanSpan(scan func(dest ...any) error) (Span, error) {
+	var sp Span
+	var start string
+	var end *string
+
+	if err := scan(&sp.ID, &sp.JobID, &start, &end); err != nil {
+		return Span{}, err
+	}
+
+	parsedStart, err := time.Parse(SqlTimeFormat, start)
+	if err != nil {
+		return Span{}, fmt.Errorf("failed to parse start time: %w", err)
+	}
+	sp.StartTime = parsedStart
+
+	if end != nil {
+		parsedEnd, err := time.Parse(SqlTimeFormat, *end)
+		if err != nil {
+			return Span{}, fmt.Errorf("failed to parse end time: %w", err)
+		}
+		sp.EndTime = &parsedEnd
+	}
+
+	return sp, nil
 }
 
 type Note struct {
@@ -215,30 +248,7 @@ func (s *SqlConn) ListJobs() ([]Job, error) {
 	return jobs, nil
 }
 
-// List all spans for a job, ordered by start time
-func (s *SqlConn) ListSpansByJob(jobId int) ([]Span, error) {
-	rows, err := s.db.Query(listSpansByJob, jobId)
-	if err != nil {
-		return nil, fmt.Errorf("list spans failed: %w", err)
-	}
-	defer rows.Close()
-
-	var spans []Span
-	for rows.Next() {
-		var sp Span
-		if err := rows.Scan(&sp.ID, &sp.JobID, &sp.StartTime, &sp.EndTime); err != nil {
-			return nil, fmt.Errorf("failed to scan span row: %w", err)
-		}
-		spans = append(spans, sp)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate span rows: %w", err)
-	}
-
-	return spans, nil
-}
-
-// Write job to storage
+// / Write job to storage
 func (s *SqlConn) WriteJob(name string, desc string, status string) (int, error) {
 	if !slices.Contains(validStatuses, status) {
 		return 0, fmt.Errorf("invalid status: %s", status)
@@ -379,13 +389,7 @@ func (s *SqlConn) GetOpenSpan() (int, error) {
 
 // Get span by ID
 func (s *SqlConn) GetSpan(id int) (Span, error) {
-	var sp Span
-	err := s.db.QueryRow(getSpan, id).Scan(&sp.ID, &sp.JobID, &sp.StartTime, &sp.EndTime)
-	if err != nil {
-		return Span{}, err
-	}
-
-	return sp, nil
+	return scanSpan(s.db.QueryRow(getSpan, id).Scan)
 }
 
 // Get open job name
@@ -411,7 +415,7 @@ func (s *SqlConn) WriteNote(spanId int, content string) (int, error) {
 	return int(id), nil
 }
 
-// Reporting -----
+// Reporting V1 -----
 // Deprecated: reporting commands were removed from the CLI. These helpers
 // are unused but kept around for now.
 
@@ -431,19 +435,31 @@ func WriteReport(content string, fileName string) error {
 	return nil
 }
 
-// Deprecated: unused since reporting commands were removed from the CLI.
-// Write rows to fileName as CSV. The first row is expected to be the header.
-func WriteReportCSV(rows [][]string, fileName string) error {
-	file, err := os.Create(fileName)
+// Reporting V2 -----
+// What we want
+// 1. a total time, num entries, last clocked in, if clocked in now for a job - have that - but this is two queries
+// 2. a flexible, extendible row based formatting to print out total timestamps - bascically sqlite table export
+// with ranges - will add after core is working
+
+// List spans for a job with formatting
+// TODO add --from --to flags
+func (s *SqlConn) GetJobSpans(id int) ([]Span, error) {
+	rows, err := s.db.Query(getJobSpans, id)
 	if err != nil {
-		return err
+		return []Span{}, fmt.Errorf("failed to get spans for job with ID %d: %w", id, err)
 	}
-	defer file.Close()
+	defer rows.Close()
 
-	w := csv.NewWriter(file)
-	if err := w.WriteAll(rows); err != nil {
-		return err
+	var spans []Span
+
+	for rows.Next() {
+		sp, err := scanSpan(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate span rows: %w", err)
+		}
+
+		spans = append(spans, sp)
 	}
 
-	return nil
+	return spans, nil
 }

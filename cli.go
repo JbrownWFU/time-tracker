@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	Server "time-tracker/src/server"
@@ -22,6 +23,7 @@ type CLI struct {
 	Where  WhereCmd  `cmd:"" help:"Show which job is currently clocked in, and for how long."`
 	About  AboutCmd  `cmd:"" help:"Print application info."`
 	Serve  ServeCmd  `cmd:"" help:"Run with localhost web interface."`
+	Report ReportCmd `cmd:"" help:"Print all time entries for a job."`
 }
 
 // Create a new job
@@ -110,42 +112,25 @@ func (c *ShowCmd) Run(db *SqlDB.SqlConn) error {
 	if err != nil {
 		return err
 	}
+
 	job, err := db.GetJob(id)
 	if err != nil {
 		return err
 	}
-	spans, err := db.ListSpansByJob(id)
+
+	spans, err := db.GetJobSpans(id)
 	if err != nil {
 		return err
 	}
 
-	var total time.Duration
-	var openSince *time.Time
-	for _, sp := range spans {
-		start, err := time.Parse(SqlDB.SqlTimeFormat, sp.StartTime)
-		if err != nil {
-			return fmt.Errorf("failed to parse start time: %w", err)
-		}
-
-		if sp.EndTime == nil {
-			start := start.UTC()
-			openSince = &start
-			total += time.Since(start)
-			continue
-		}
-
-		end, err := time.Parse(SqlDB.SqlTimeFormat, *sp.EndTime)
-		if err != nil {
-			return fmt.Errorf("failed to parse end time: %w", err)
-		}
-		total += end.Sub(start)
-	}
+	total, openSince := summarizeSpans(spans)
 
 	fmt.Printf("Name:         %s\n", job.Name)
 	fmt.Printf("Status:       %s\n", job.Status)
 	if job.Desc != "" {
 		fmt.Printf("Description:  %s\n", job.Desc)
 	}
+
 	fmt.Printf("Time entries: %d\n", len(spans))
 	fmt.Printf("Total time:   %s\n", formatDuration(total))
 	if openSince != nil {
@@ -250,6 +235,168 @@ func (c *ServeCmd) Run(db *SqlDB.SqlConn) error {
 	return nil
 }
 
+type AboutCmd struct{}
+
+func (c *AboutCmd) Run(db *SqlDB.SqlConn) error {
+	fmt.Printf("Version: %s (%s)\n", version, commit)
+	fmt.Printf("Built:   %s\n", date)
+	fmt.Printf("Repo:    %s\n", githubURL)
+	fmt.Printf("DB:      %s\n", db.GetPath())
+	return nil
+}
+
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Minute)
+	h := d / time.Hour
+	m := (d % time.Hour) / time.Minute
+	return fmt.Sprintf("%dh %dm", h, m)
+}
+
+// TODO figure out --from --to
+type ReportCmd struct {
+	Name  string `arg:"Job to report on"`
+	From  string `help:"Start Date (YYYY-MM-DD)" xor:"range"`
+	To    string `help:"End Date (YYYY-MM-DD)"`
+	Today bool   `help:"Report on today" xor:"range"`
+	Week  bool   `help:"Report on this week" xor:"range"`
+}
+
+// Report on job - full time span printing
+// Will support output to txt, md (just a different extension), csv (just text comma seperated values), json (? would be cool)
+func (c *ReportCmd) Run(db *SqlDB.SqlConn) error {
+	id, err := db.ResolveJob(c.Name)
+	if err != nil {
+		return err
+	}
+
+	job, err := db.GetJob(id)
+	if err != nil {
+		return err
+	}
+
+	spans, err := db.GetJobSpans(id)
+	if err != nil {
+		return err
+	}
+
+	from, to, err := c.dateRange(time.Now())
+	if err != nil {
+		return err
+	}
+	spans = filterSpansByRange(spans, from, to)
+
+	// Print text - will pick output from flag later perhaps
+	out, err := formatReportText(job, spans)
+	if err != nil {
+		return err
+	}
+
+	fmt.Print(out)
+	return nil
+}
+
+// dateRange resolves the command's flags into a [from, to) window relative
+// to now. A nil bound means unbounded on that side; both nil means no
+// filtering at all (the --from/--to/--today/--week default case).
+func (c *ReportCmd) dateRange(now time.Time) (from, to *time.Time, err error) {
+	switch {
+	case c.Today:
+		start := startOfDay(now)
+		end := start.AddDate(0, 0, 1)
+		return &start, &end, nil
+
+	case c.Week:
+		start := startOfWeek(now)
+		end := start.AddDate(0, 0, 7)
+		return &start, &end, nil
+
+	case c.From != "":
+		start, err := time.ParseInLocation("2006-01-02", c.From, time.Local)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid --from date: %w", err)
+		}
+		if c.To == "" {
+			return &start, nil, nil
+		}
+		endDay, err := time.ParseInLocation("2006-01-02", c.To, time.Local)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid --to date: %w", err)
+		}
+		// --to is the last day included, so the exclusive bound is the day after.
+		end := endDay.AddDate(0, 0, 1)
+		return &start, &end, nil
+
+	case c.To != "":
+		return nil, nil, fmt.Errorf("--to requires --from")
+
+	default:
+		return nil, nil, nil
+	}
+}
+
+// startOfDay returns midnight, same day and location, as t.
+func startOfDay(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
+}
+
+// startOfWeek returns midnight on the Monday of t's week.
+func startOfWeek(t time.Time) time.Time {
+	start := startOfDay(t)
+	offset := (int(start.Weekday()) + 6) % 7 // Weekday(): Sunday=0..Saturday=6
+	return start.AddDate(0, 0, -offset)
+}
+
+// filterSpansByRange keeps only spans that started within [from, to).
+// A nil bound is unbounded on that side; from == to == nil returns spans unchanged.
+func filterSpansByRange(spans []SqlDB.Span, from, to *time.Time) []SqlDB.Span {
+	if from == nil && to == nil {
+		return spans
+	}
+
+	var filtered []SqlDB.Span
+	for _, sp := range spans {
+		if from != nil && sp.StartTime.Before(*from) {
+			continue
+		}
+		if to != nil && !sp.StartTime.Before(*to) {
+			continue
+		}
+		filtered = append(filtered, sp)
+	}
+	return filtered
+}
+
+// formatReportText renders a job's spans as plain text: one line per span
+// (start, end, duration) plus a total line. Signature (job, spans) -> (string, error)
+// is the shape every future formatter should share, so a --format flag can
+// later dispatch to formatReportJSON/CSV/MD the same way.
+func formatReportText(job SqlDB.Job, spans []SqlDB.Span) (string, error) {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "Report: %s\n", job.Name)
+
+	for _, sp := range spans {
+		start := sp.StartTime.Local().Format("2006-01-02 15:04")
+
+		end := "open"
+		dur := time.Since(sp.StartTime)
+		if sp.EndTime != nil {
+			end = sp.EndTime.Local().Format("2006-01-02 15:04")
+			dur = sp.EndTime.Sub(sp.StartTime)
+		}
+
+		fmt.Fprintf(&b, "%s -> %s\t%s\n", start, end, formatDuration(dur))
+	}
+
+	total, _ := summarizeSpans(spans)
+	fmt.Fprintf(&b, "Total: %s\n", formatDuration(total))
+
+	return b.String(), nil
+}
+
+// Helpers
+
 // openSpanStatus returns the job name and elapsed duration for the
 // currently open span, if any.
 func openSpanStatus(db *SqlDB.SqlConn) (string, time.Duration, error) {
@@ -270,27 +417,23 @@ func openSpanStatus(db *SqlDB.SqlConn) (string, time.Duration, error) {
 		return "", 0, err
 	}
 
-	start, err := time.Parse(SqlDB.SqlTimeFormat, span.StartTime)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to parse start time: %w", err)
+	return job.Name, time.Since(span.StartTime.UTC()), nil
+}
+
+// summarizeSpans reduces a job's spans down to the total tracked duration
+// and, if one span is still open, the time it was clocked in since. Shared
+// by ShowCmd today; a future Report command can fold over the same spans
+// (e.g. bucket by day) without re-touching the DB or re-parsing times.
+func summarizeSpans(spans []SqlDB.Span) (total time.Duration, openSince *time.Time) {
+	for _, sp := range spans {
+		if sp.EndTime == nil {
+			start := sp.StartTime.UTC()
+			openSince = &start
+			total += time.Since(start)
+			continue
+		}
+		total += sp.EndTime.Sub(sp.StartTime)
 	}
-
-	return job.Name, time.Since(start.UTC()), nil
+	return total, openSince
 }
 
-type AboutCmd struct{}
-
-func (c *AboutCmd) Run(db *SqlDB.SqlConn) error {
-	fmt.Printf("Version: %s (%s)\n", version, commit)
-	fmt.Printf("Built:   %s\n", date)
-	fmt.Printf("Repo:    %s\n", githubURL)
-	fmt.Printf("DB:      %s\n", db.GetPath())
-	return nil
-}
-
-func formatDuration(d time.Duration) string {
-	d = d.Round(time.Minute)
-	h := d / time.Hour
-	m := (d % time.Hour) / time.Minute
-	return fmt.Sprintf("%dh %dm", h, m)
-}
